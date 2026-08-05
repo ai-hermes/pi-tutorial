@@ -1,0 +1,50 @@
+{
+  "name": "pi",
+  "version": "1.0.0",
+  "description": "Pi SDK learning path and DataAgent implementation",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "data-agent": "tsx --env-file-if-exists=.env data-agent/packages/cli/src/cli.ts",
+    "data-agent:test": "pnpm --filter @warjiang/data-agent-core test",
+    "data-agent:typecheck": "pnpm --filter './data-agent/packages/*' typecheck",
+    "example:data-agent-web": "pnpm --filter @warjiang/data-agent-web dev",
+    "example:data-agent-web:build": "pnpm --filter @warjiang/data-agent-web build",
+    "example:data-agent-web:test": "pnpm --filter @warjiang/data-agent-web test",
+    "example:pi-chat-web": "pnpm --filter @warjiang/pi-chat-web dev",
+    "example:pi-chat-web:build": "pnpm --filter @warjiang/pi-chat-web build",
+    "example:pi-chat-web:test": "pnpm --filter @warjiang/pi-chat-web test",
+    "example:minimal": "tsx examples/00-quickstart/00-minimal-agent.ts",
+    "example:model-runtime": "tsx examples/00-quickstart/01-model-runtime.ts",
+    "example:custom-provider": "tsx examples/00-quickstart/02-custom-provider.ts",
+    "example:loop": "tsx examples/01-agent-loop/00-observe-loop.ts",
+    "example:readonly-tools": "tsx examples/01-agent-loop/01-readonly-tools.ts",
+    "example:custom-tool": "tsx examples/01-agent-loop/02-custom-tool.ts",
+    "example:context": "tsx examples/02-context/00-system-prompt.ts",
+    "example:sessions": "tsx examples/03-sessions/00-persistent-session.ts",
+    "example:extension": "tsx examples/04-extensibility/00-inline-extension.ts",
+    "example:image-input": "tsx examples/05-multimodal/00-image-input.ts"
+  },
+  "keywords": [
+    "pi",
+    "agent",
+    "sdk",
+    "data-agent"
+  ],
+  "license": "ISC",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

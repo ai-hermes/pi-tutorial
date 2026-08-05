@@ -1,0 +1,109 @@
+export type RuntimeStatus = "ready" | "running" | "stopping" | "compacting" | "error" | "cold";
+export type QueueBehavior = "steer" | "followUp";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ModelOption {
+  provider: string;
+  id: string;
+  name: string;
+  contextWindow: number;
+  reasoning: boolean;
+  imageInput: boolean;
+}
+
+export interface ChatImage {
+  type: "image";
+  mimeType: string;
+  data: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  images: ChatImage[];
+  timestamp: number;
+  streaming?: boolean;
+  pending?: boolean;
+  error?: string;
+}
+
+export interface ToolRun {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  status: "running" | "success" | "error";
+  result?: string;
+  details?: unknown;
+  startedAt: number;
+  endedAt?: number;
+}
+
+export interface SessionStats {
+  sessionId: string;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolResults: number;
+  totalMessages: number;
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  cost: number;
+  contextUsage?: { tokens: number; contextWindow: number; percent: number };
+}
+
+export interface ConversationSettings {
+  autoCompaction: boolean;
+  autoRetry: boolean;
+  steeringMode: "all" | "one-at-a-time";
+  followUpMode: "all" | "one-at-a-time";
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  workspace: string;
+  parentId?: string;
+  status: RuntimeStatus;
+}
+
+export interface ActivityItem {
+  id: number;
+  type: string;
+  timestamp: string;
+  summary: string;
+}
+
+export interface ConversationSnapshot {
+  conversation: ConversationSummary;
+  messages: ChatMessage[];
+  tools: ToolRun[];
+  model: { provider: string; id: string };
+  thinkingLevel: ThinkingLevel;
+  availableThinkingLevels: ThinkingLevel[];
+  status: RuntimeStatus;
+  error?: string;
+  queue: { steering: string[]; followUp: string[] };
+  settings: ConversationSettings;
+  stats: SessionStats;
+  stream: { id: string; lastEventId: number };
+  activity: ActivityItem[];
+  diagnostics: string[];
+}
+
+export interface BootstrapData {
+  models: ModelOption[];
+  warning: string;
+  idleTtlMs: number;
+  dataDir: string;
+}
+
+export interface StreamEvent<T = unknown> {
+  id: number;
+  streamId: string;
+  type: string;
+  timestamp: string;
+  payload: T;
+}

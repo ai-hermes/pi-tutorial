@@ -1,0 +1,27 @@
+{
+  "name": "deep-research",
+  "version": "0.1.0",
+  "description": "Evidence-driven mobile deep research agent powered by Pi and Android ADB",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "research": "tsx --env-file-if-exists=.env src/research/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "pngjs": "^7.0.0",
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.4",
+    "@types/pngjs": "^6.0.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

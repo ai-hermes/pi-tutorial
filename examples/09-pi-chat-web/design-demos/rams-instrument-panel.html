@@ -1,0 +1,633 @@
+<!--
+  ASSUMPTIONS
+  - 这是方向选择用的高保真交互原型，不连接真实 REST/SSE；操作反馈只改变本页可见状态。
+  - 桌面是主要工作距离（约 60–90cm），移动端只保留阅读、工具展开、历史/检查器进入与轻量追问。
+  - 无外链资产；字体优先使用已约定的 Geist / Geist Mono，本机缺失时回退系统字体。
+
+  FORM 五问
+  1. 叙事角色：主屏是一次任务的“运行记录”，用户指令—执行证据—Pi 总结构成纵向主线。
+  2. 观众距离：桌面 60–90cm、移动端 10cm；正文 15–16px，仪表标签不小于 12px。
+  3. 视觉温度：温暖、冷静、可信；暖灰纸面承载内容，橙色只标记当前动作。
+  4. 容量估算：900px 高度容纳顶栏、约 600px 时间线与 128px 输入台；侧区各自独立滚动。
+  5. 视觉母题：“一次任务由连续、可验证的步骤组成”，刻度轨与编号把工具调用变成可追踪证据。
+
+  FORM 来源
+  来自 Pi Chat 的持续 Agent 工作流：聊天是主回路，write / edit / bash 是连续校验点，历史与 Harness
+  只在需要时接入主回路；因此界面采用中央记录纸 + 两侧可开合仪表舱，而不是三栏等权 Dashboard。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pi Chat · Rams Instrument Panel</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #e7e1d6;
+      --paper: #f7f3ea;
+      --paper-strong: #fffdf7;
+      --panel: #ddd6c9;
+      --panel-deep: #cec5b6;
+      --ink: #282722;
+      --ink-soft: #666157;
+      --ink-faint: #857f74;
+      --line: #bbb2a3;
+      --line-soft: #d8d0c3;
+      --orange: #d25c2c;
+      --orange-dark: #a8431f;
+      --green: #3f6d54;
+      --red: #a94334;
+      --shadow: 0 18px 46px rgb(55 49 39 / 14%);
+      --left-width: 264px;
+      --right-width: 306px;
+      --top-height: 72px;
+      --composer-height: 132px;
+      font-family: Geist, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: var(--canvas); color: var(--ink); font-size: 15px; }
+    button, input, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--orange);
+      outline-offset: 2px;
+    }
+    [hidden] { display: none !important; }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--left-width) minmax(0, 1fr) var(--right-width);
+      grid-template-rows: var(--top-height) minmax(0, 1fr);
+      width: 100vw;
+      height: 100dvh;
+      background: var(--paper);
+      transition: grid-template-columns 180ms ease;
+    }
+    .app.history-closed { grid-template-columns: 0 minmax(0, 1fr) var(--right-width); }
+    .app.inspector-closed { grid-template-columns: var(--left-width) minmax(0, 1fr) 0; }
+    .app.history-closed.inspector-closed { grid-template-columns: 0 minmax(0, 1fr) 0; }
+
+    .topbar {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: auto minmax(200px, 1fr) auto;
+      align-items: stretch;
+      min-width: 0;
+      border-bottom: 1px solid var(--ink);
+      background: var(--panel);
+    }
+    .brand-zone, .session-zone, .control-zone { display: flex; align-items: center; min-width: 0; }
+    .brand-zone { gap: 10px; padding: 0 16px; border-right: 1px solid var(--line); }
+    .pi-mark {
+      display: grid; place-items: center; width: 36px; height: 36px;
+      background: var(--ink); color: var(--paper); border: 0; border-radius: 2px;
+    }
+    .pi-mark::before {
+      content: ""; width: 0; height: 0;
+      border-left: 7px solid transparent; border-right: 7px solid transparent;
+      border-bottom: 13px solid currentColor; transform: translateY(-1px);
+    }
+    .brand-copy strong { display: block; font-size: 14px; letter-spacing: -.02em; }
+    .brand-copy span, .eyebrow, .meter-label, .status-label, .tool-kicker, .tab-btn, .micro {
+      font-family: "Geist Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: .055em;
+      text-transform: uppercase;
+    }
+    .brand-copy span { display: block; margin-top: 2px; color: var(--ink-soft); font-size: 10px; }
+    .session-zone { position: relative; padding: 0 20px; overflow: hidden; }
+    .session-zone::after, .meter-track::after {
+      content: ""; position: absolute; left: 20px; right: 20px; bottom: 7px; height: 7px;
+      background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 10px);
+      opacity: .85;
+    }
+    .session-title { min-width: 0; }
+    .eyebrow { color: var(--ink-soft); }
+    h1 { margin: 3px 0 0; overflow: hidden; font-size: 17px; line-height: 1.2; white-space: nowrap; text-overflow: ellipsis; }
+    .control-zone { gap: 0; border-left: 1px solid var(--line); }
+    .instrument-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      min-width: 48px; height: 100%; padding: 0 14px; border: 0; border-right: 1px solid var(--line);
+      background: transparent; color: var(--ink-soft); font-size: 13px;
+    }
+    .instrument-btn:hover, .instrument-btn[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
+    .instrument-btn .line-icon { width: 18px; height: 14px; position: relative; }
+    .instrument-btn .line-icon::before, .instrument-btn .line-icon::after {
+      content: ""; position: absolute; left: 1px; right: 1px; height: 1px; background: currentColor;
+    }
+    .instrument-btn .line-icon::before { top: 3px; box-shadow: 0 4px 0 currentColor, 0 8px 0 currentColor; }
+    .connection { display: flex; align-items: center; gap: 7px; padding: 0 15px; white-space: nowrap; }
+    .lamp { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: inset 0 0 0 1px rgb(0 0 0 / 20%); }
+
+    .side-panel {
+      grid-row: 2; min-width: 0; overflow: hidden; background: var(--panel);
+      transition: opacity 140ms ease, transform 180ms ease;
+    }
+    .history { grid-column: 1; border-right: 1px solid var(--ink); }
+    .inspector { grid-column: 3; border-left: 1px solid var(--ink); }
+    .history-closed .history, .inspector-closed .inspector { opacity: 0; pointer-events: none; }
+    .panel-inner { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 240px; }
+    .panel-head { flex: 0 0 auto; padding: 18px 16px 14px; border-bottom: 1px solid var(--line); }
+    .panel-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .panel-head h2 { margin: 3px 0 0; font-size: 16px; }
+    .square-action {
+      display: grid; place-items: center; min-width: 36px; height: 36px; padding: 0 10px;
+      border: 1px solid var(--ink); border-radius: 1px; background: var(--paper); font-size: 17px;
+    }
+    .square-action:hover { background: var(--ink); color: var(--paper); }
+    .search-wrap { padding: 12px 12px 8px; }
+    .search-wrap input {
+      width: 100%; height: 40px; padding: 0 11px; border: 1px solid var(--line);
+      border-radius: 1px; background: rgb(255 253 247 / 62%); font-size: 14px;
+    }
+    .conversation-list { flex: 1; overflow: auto; padding: 2px 8px 20px; }
+    .date-label { margin: 15px 8px 7px; color: var(--ink-faint); }
+    .conversation {
+      display: block; width: 100%; min-height: 54px; padding: 9px 10px; border: 0;
+      border-left: 3px solid transparent; background: transparent; text-align: left;
+    }
+    .conversation:hover { background: rgb(247 243 234 / 55%); }
+    .conversation.active { border-left-color: var(--orange); background: var(--paper); }
+    .conversation strong { display: block; overflow: hidden; font-size: 14px; white-space: nowrap; text-overflow: ellipsis; }
+    .conversation span { display: block; margin-top: 5px; color: var(--ink-soft); font: 11px "Geist Mono", monospace; }
+    .branch { margin-left: 14px; position: relative; }
+    .branch::before { content: ""; position: absolute; left: -7px; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+    .security {
+      display: flex; align-items: flex-start; gap: 9px; margin-top: auto; padding: 13px 14px;
+      border-top: 1px solid var(--line); background: var(--panel-deep); color: var(--ink-soft); font-size: 12px; line-height: 1.45;
+    }
+    .security-mark { flex: 0 0 auto; width: 14px; height: 14px; margin-top: 1px; border: 1px solid var(--orange-dark); color: var(--orange-dark); text-align: center; font: 10px/13px monospace; }
+
+    .workspace {
+      grid-column: 2; grid-row: 2; display: grid; grid-template-rows: minmax(0, 1fr) auto;
+      min-width: 0; min-height: 0; background: var(--paper);
+    }
+    .timeline { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+    .transcript { width: min(100%, 820px); margin: 0 auto; padding: 34px 34px 48px; }
+    .turn { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 18px; padding: 22px 0; border-bottom: 1px solid var(--line-soft); }
+    .turn-label { padding-top: 2px; color: var(--ink-faint); font: 12px/1.5 "Geist Mono", monospace; text-transform: uppercase; }
+    .turn-label b { display: block; color: var(--ink); font-weight: 600; }
+    .turn-body { min-width: 0; font-size: 15px; line-height: 1.7; }
+    .turn-body p { margin: 0 0 11px; }
+    .turn-body p:last-child { margin-bottom: 0; }
+    .user-turn .turn-body {
+      padding: 15px 17px; border-left: 3px solid var(--ink); background: #eee8dc;
+      font-size: 16px; line-height: 1.6;
+    }
+    code { padding: .1em .32em; background: #e4ded2; font: .9em "Geist Mono", monospace; }
+
+    .run-group { margin: 2px 0 4px; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .run-header {
+      position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center;
+      min-height: 50px; padding: 9px 10px; overflow: hidden; background: #e9e3d8;
+    }
+    .run-header::after {
+      content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 4px;
+      background: repeating-linear-gradient(90deg, var(--ink-faint) 0 1px, transparent 1px 8px);
+      opacity: .55;
+    }
+    .run-id { font: 600 12px "Geist Mono", monospace; }
+    .run-summary { font-size: 13px; color: var(--ink-soft); }
+    .run-state { color: var(--red); font: 12px "Geist Mono", monospace; }
+    .tool-step { border-top: 1px solid var(--line-soft); }
+    .tool-toggle {
+      display: grid; grid-template-columns: 30px 70px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+      width: 100%; min-height: 50px; padding: 0 10px; border: 0; background: var(--paper-strong); text-align: left;
+    }
+    .tool-toggle:hover { background: #f0eadf; }
+    .step-number {
+      width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 50%;
+      color: var(--ink-soft); font: 11px/22px "Geist Mono", monospace; text-align: center;
+    }
+    .tool-name { font: 600 12px "Geist Mono", monospace; text-transform: uppercase; }
+    .tool-target { overflow: hidden; color: var(--ink-soft); font: 12px "Geist Mono", monospace; white-space: nowrap; text-overflow: ellipsis; }
+    .tool-status { display: flex; align-items: center; gap: 8px; color: var(--green); font: 11px "Geist Mono", monospace; }
+    .tool-status.error { color: var(--red); }
+    .status-tick { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .expand-mark { width: 12px; text-align: center; color: var(--ink); font-size: 16px; }
+    .tool-detail {
+      padding: 12px 16px 15px 48px; border-top: 1px dashed var(--line); background: #e7e0d4;
+      color: #3f3c35; font: 12px/1.65 "Geist Mono", monospace; white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .pi-summary h3 { margin: 0 0 9px; font-size: 17px; }
+    .file-list { margin: 10px 0 0; padding-left: 18px; }
+    .file-list li { margin: 4px 0; }
+
+    .composer {
+      min-height: var(--composer-height); padding: 14px 22px max(14px, env(safe-area-inset-bottom));
+      border-top: 1px solid var(--ink); background: var(--panel);
+    }
+    .composer-inner { width: min(100%, 820px); margin: 0 auto; }
+    .compose-top { display: grid; grid-template-columns: 1fr auto; gap: 0; border: 1px solid var(--ink); background: var(--paper-strong); }
+    textarea {
+      width: 100%; height: 58px; resize: none; padding: 11px 13px; border: 0; background: transparent;
+      font-size: 15px; line-height: 1.45;
+    }
+    textarea:focus { outline-offset: -2px; }
+    .send-btn {
+      width: 58px; min-height: 58px; border: 0; border-left: 1px solid var(--ink); background: var(--orange); color: #fff8ef;
+      font: 18px "Geist Mono", monospace;
+    }
+    .send-btn:hover { background: var(--orange-dark); }
+    .compose-controls { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-width: 0; }
+    .text-action {
+      display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 9px;
+      border: 1px solid var(--line); border-radius: 1px; background: transparent; color: var(--ink-soft); font-size: 12px;
+    }
+    .text-action:hover, .text-action.active { border-color: var(--ink); background: var(--paper); color: var(--ink); }
+    .stop-action { border-color: var(--red); color: var(--red); }
+    .queue-note { margin-left: auto; color: var(--ink-faint); font: 11px "Geist Mono", monospace; white-space: nowrap; }
+
+    .inspector-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+    .tab-btn { min-height: 42px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--ink-soft); }
+    .tab-btn:last-child { border-right: 0; }
+    .tab-btn[aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--orange); background: var(--paper); color: var(--ink); }
+    .inspector-body { flex: 1; overflow: auto; padding: 16px; }
+    .meter { margin-bottom: 22px; }
+    .meter-head { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
+    .meter-value { font: 18px "Geist Mono", monospace; }
+    .meter-track { position: relative; height: 28px; margin-top: 8px; border-top: 1px solid var(--ink); }
+    .meter-track::after { left: 0; right: 0; bottom: auto; top: 5px; height: 12px; }
+    .meter-fill { position: absolute; left: 0; top: 0; width: 42%; height: 3px; background: var(--orange); }
+    .readout { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 13px; }
+    .readout strong { font-family: "Geist Mono", monospace; font-size: 12px; }
+    .activity { padding: 12px 0; border-top: 1px solid var(--line); }
+    .activity time { display: block; margin-bottom: 4px; color: var(--ink-faint); font: 11px "Geist Mono", monospace; }
+    .activity p { margin: 0; font-size: 13px; line-height: 1.5; }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; border-top: 1px solid var(--line); font-size: 13px; }
+    .toggle {
+      position: relative; width: 44px; height: 36px; border: 0; background: transparent;
+    }
+    .toggle::before {
+      content: ""; position: absolute; top: 8px; left: 4px; width: 36px; height: 20px;
+      border: 1px solid var(--ink); border-radius: 10px; background: var(--paper);
+    }
+    .toggle::after { content: ""; position: absolute; top: 12px; left: 8px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); }
+    .toggle.on::after { left: 24px; background: var(--orange); }
+    .panel-close-mobile, .scrim { display: none; }
+    .toast {
+      position: fixed; left: 50%; bottom: calc(var(--composer-height) + 18px); z-index: 80;
+      transform: translate(-50%, 14px); padding: 9px 13px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper);
+      font-size: 13px; opacity: 0; pointer-events: none; transition: 160ms ease;
+    }
+    .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+    @media (max-width: 980px) {
+      :root { --right-width: 278px; }
+      .brand-copy, .model-label { display: none; }
+      .transcript { padding-inline: 24px; }
+    }
+
+    @media (max-width: 720px) {
+      :root { --top-height: 58px; --composer-height: 142px; }
+      .app, .app.history-closed, .app.inspector-closed, .app.history-closed.inspector-closed {
+        display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--top-height) minmax(0, 1fr);
+      }
+      .topbar { grid-column: 1; grid-template-columns: auto minmax(0, 1fr) auto; }
+      .brand-zone { padding: 0 8px; }
+      .pi-mark { width: 44px; height: 44px; }
+      .session-zone { padding: 0 10px; }
+      .session-zone::after { left: 10px; right: 10px; bottom: 4px; height: 4px; }
+      .eyebrow { font-size: 10px; }
+      h1 { font-size: 14px; }
+      .control-zone .connection, .control-zone .model-label { display: none; }
+      .instrument-btn { min-width: 48px; padding: 0 12px; }
+      .workspace { grid-column: 1; grid-row: 2; }
+      .side-panel {
+        position: fixed; top: 0; bottom: 0; z-index: 60; width: min(88vw, 330px); opacity: 1;
+        box-shadow: var(--shadow); transition: transform 180ms ease;
+      }
+      .history { left: 0; transform: translateX(0); border-right: 1px solid var(--ink); }
+      .inspector { right: 0; transform: translateX(0); border-left: 1px solid var(--ink); }
+      .history-closed .history { transform: translateX(-105%); opacity: 1; }
+      .inspector-closed .inspector { transform: translateX(105%); opacity: 1; }
+      .panel-inner { min-width: 0; }
+      .panel-close-mobile { display: grid; }
+      .square-action { min-width: 44px; height: 44px; }
+      .search-wrap input, .tab-btn { min-height: 44px; }
+      .scrim { position: fixed; inset: 0; z-index: 50; border: 0; background: rgb(40 39 34 / 38%); }
+      .app:not(.history-closed) .scrim, .app:not(.inspector-closed) .scrim { display: block; }
+      .transcript { width: 100%; padding: 18px 16px 34px; }
+      .turn { grid-template-columns: 50px minmax(0, 1fr); gap: 10px; padding: 17px 0; }
+      .turn-body { font-size: 15px; line-height: 1.62; }
+      .user-turn .turn-body { padding: 12px 13px; font-size: 15px; }
+      .run-header { grid-template-columns: auto 1fr; }
+      .run-state { grid-column: 2; }
+      .tool-toggle { grid-template-columns: 26px 48px minmax(0, 1fr) auto; gap: 6px; min-height: 54px; padding-inline: 7px; }
+      .tool-target { font-size: 11px; }
+      .tool-status span:not(.status-tick) { display: none; }
+      .tool-detail { padding-left: 41px; }
+      .composer { padding: 10px 10px max(10px, env(safe-area-inset-bottom)); }
+      textarea { height: 62px; font-size: 16px; }
+      .send-btn { width: 54px; min-height: 62px; }
+      .text-action { min-height: 44px; padding-inline: 10px; }
+      .toggle { height: 44px; }
+      .toggle::before { top: 12px; }
+      .toggle::after { top: 16px; }
+      .queue-note { display: none; }
+      .toast { bottom: calc(var(--composer-height) + 10px); max-width: calc(100vw - 24px); white-space: nowrap; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" id="app">
+    <header class="topbar">
+      <div class="brand-zone">
+        <button class="pi-mark" id="historyToggle" aria-label="开合会话历史" aria-pressed="true"></button>
+        <div class="brand-copy"><strong>Pi Chat</strong><span>Agent workbench</span></div>
+      </div>
+      <div class="session-zone">
+        <div class="session-title">
+          <div class="eyebrow">当前会话 · Workspace / pi</div>
+          <h1>重构 Pi Chat Web 交互样式</h1>
+        </div>
+      </div>
+      <div class="control-zone">
+        <div class="connection"><span class="lamp"></span><span class="status-label">Live</span></div>
+        <button class="instrument-btn" id="modelButton" aria-label="当前模型与思考强度"><span class="model-label">Kimi K2.7 Code · medium</span><span aria-hidden="true">⌄</span></button>
+        <button class="instrument-btn" id="inspectorToggle" aria-label="开合 Harness 运行检查器" aria-pressed="true"><span class="line-icon" aria-hidden="true"></span></button>
+      </div>
+    </header>
+
+    <aside class="side-panel history" aria-label="会话历史">
+      <div class="panel-inner">
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <div><span class="eyebrow">Archive / 07</span><h2>会话历史</h2></div>
+            <button class="square-action" aria-label="新建会话" id="newChat">＋</button>
+          </div>
+        </div>
+        <div class="search-wrap"><input type="search" id="conversationSearch" aria-label="搜索会话" placeholder="搜索会话或工作区"></div>
+        <nav class="conversation-list" id="conversationList">
+          <div class="date-label micro">今天</div>
+          <button class="conversation active" data-search="重构 Pi Chat Web 交互样式 pi"><strong>重构 Pi Chat Web 交互样式</strong><span>刚刚 · 3 个工具步骤</span></button>
+          <button class="conversation branch" data-search="移动端布局验证 pi"><strong>移动端布局验证</strong><span>11:26 · 分支会话</span></button>
+          <button class="conversation" data-search="SSE 断线重连测试 pi"><strong>SSE 断线重连测试</strong><span>09:14 · pi</span></button>
+          <div class="date-label micro">昨天</div>
+          <button class="conversation" data-search="整理 Agent Harness 状态"><strong>整理 Agent Harness 状态</strong><span>18:42 · pi</span></button>
+          <button class="conversation" data-search="Composer 队列行为"><strong>Composer 队列行为</strong><span>15:08 · pi</span></button>
+        </nav>
+        <div class="security"><span class="security-mark">!</span><span><strong>本机可信环境</strong><br>Bash 未隔离，请确认工作区内容后执行。</span></div>
+      </div>
+    </aside>
+
+    <section class="workspace" aria-label="当前会话">
+      <div class="timeline" id="timeline">
+        <div class="transcript">
+          <article class="turn user-turn">
+            <div class="turn-label"><b>YOU</b>10:41</div>
+            <div class="turn-body">重新设计这个 Pi Chat Web 的交互样式。保留现有能力，把会话、工具执行和 Harness 的层级整理清楚，移动端也要能完整使用。</div>
+          </article>
+
+          <article class="turn">
+            <div class="turn-label"><b>PI</b>10:42</div>
+            <div class="turn-body"><p>我先把会话时间线与工具执行拆开建模，再调整工作台布局。所有变更保持在现有 REST/SSE 与共享类型边界内。</p></div>
+          </article>
+
+          <article class="turn">
+            <div class="turn-label"><b>RUN 01</b>10:42</div>
+            <div class="turn-body">
+              <section class="run-group" aria-label="三步工具执行">
+                <div class="run-header">
+                  <span class="run-id">EXECUTION / 03</span>
+                  <span class="run-summary">2 成功 · 1 失败 · 已停止</span>
+                  <span class="run-state">ATTENTION</span>
+                </div>
+                <div class="tool-step">
+                  <button class="tool-toggle" aria-expanded="false">
+                    <span class="step-number">01</span><span class="tool-name">write</span>
+                    <span class="tool-target">src/components/RunGroup.tsx</span>
+                    <span class="tool-status"><span class="status-tick"></span><span>成功</span><span class="expand-mark">＋</span></span>
+                  </button>
+                  <div class="tool-detail" hidden>path: src/components/RunGroup.tsx
+created: RunGroup, RunStep
+status: file written</div>
+                </div>
+                <div class="tool-step">
+                  <button class="tool-toggle" aria-expanded="false">
+                    <span class="step-number">02</span><span class="tool-name">edit</span>
+                    <span class="tool-target">src/App.tsx</span>
+                    <span class="tool-status"><span class="status-tick"></span><span>成功</span><span class="expand-mark">＋</span></span>
+                  </button>
+                  <div class="tool-detail" hidden>path: src/App.tsx
+change: group contiguous tool calls in the timeline
+status: patch applied</div>
+                </div>
+                <div class="tool-step">
+                  <button class="tool-toggle" aria-expanded="true">
+                    <span class="step-number">03</span><span class="tool-name">bash</span>
+                    <span class="tool-target">npm test -- --run</span>
+                    <span class="tool-status error"><span class="status-tick"></span><span>失败</span><span class="expand-mark">−</span></span>
+                  </button>
+                  <div class="tool-detail">$ npm test -- --run
+FAIL src/components/RunGroup.test.tsx
+Expected status summary “2 成功 · 1 失败”
+Received “3 个步骤”
+
+Process exited with code 1</div>
+                </div>
+              </section>
+            </div>
+          </article>
+
+          <article class="turn pi-summary">
+            <div class="turn-label"><b>PI</b>10:43</div>
+            <div class="turn-body">
+              <h3>界面骨架已完成，测试暴露了状态汇总文案差异。</h3>
+              <p>会话仍是阅读主线；连续工具调用现在作为一组执行证据显示，每一步都可以独立展开。下一步只需要统一汇总规则后重新运行测试。</p>
+              <ul class="file-list">
+                <li><code>RunGroup.tsx</code>：连续步骤与状态汇总</li>
+                <li><code>App.tsx</code>：历史、时间线与检查器布局</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+      </div>
+
+      <footer class="composer">
+        <div class="composer-inner">
+          <div class="compose-top">
+            <textarea id="prompt" aria-label="向 Pi Chat 发送消息" placeholder="继续描述任务，或在运行中插入 Steer…"></textarea>
+            <button class="send-btn" id="sendButton" aria-label="发送消息">↑</button>
+          </div>
+          <div class="compose-controls">
+            <button class="text-action" id="imageButton">＋ 图片</button>
+            <button class="text-action active" id="steerButton">Steer</button>
+            <button class="text-action" id="followButton">Follow-up</button>
+            <button class="text-action stop-action" id="stopButton">停止</button>
+            <span class="queue-note">RUNNING · 队列 1</span>
+          </div>
+        </div>
+      </footer>
+    </section>
+
+    <aside class="side-panel inspector" aria-label="Harness 运行检查器">
+      <div class="panel-inner">
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <div><span class="eyebrow">Harness / Live</span><h2>运行检查器</h2></div>
+            <button class="square-action panel-close-mobile" id="inspectorClose" aria-label="关闭检查器">×</button>
+          </div>
+        </div>
+        <div class="inspector-tabs" role="tablist" aria-label="检查器视图">
+          <button class="tab-btn" role="tab" aria-selected="true" data-tab="context">上下文</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab="activity">活动</button>
+          <button class="tab-btn" role="tab" aria-selected="false" data-tab="settings">设置</button>
+        </div>
+        <div class="inspector-body">
+          <section class="tab-panel" data-panel="context">
+            <div class="meter">
+              <div class="meter-head"><span class="meter-label">Context usage</span><span class="meter-value">42%</span></div>
+              <div class="meter-track"><span class="meter-fill"></span></div>
+            </div>
+            <div class="readout"><span>会话状态</span><strong>RUNNING</strong></div>
+            <div class="readout"><span>模型</span><strong>KIMI K2.7 CODE</strong></div>
+            <div class="readout"><span>Thinking</span><strong>MEDIUM</strong></div>
+            <div class="readout"><span>Steer 队列</span><strong>01</strong></div>
+            <div class="readout"><span>Follow-up</span><strong>00</strong></div>
+            <button class="square-action" id="compactButton" style="width:100%; margin-top:18px; font-size:13px;">压缩上下文</button>
+          </section>
+          <section class="tab-panel" data-panel="activity" hidden>
+            <div class="activity"><time>10:43:18</time><p><strong>bash</strong> 返回退出码 1，运行状态已停止。</p></div>
+            <div class="activity"><time>10:42:51</time><p><strong>edit</strong> 已更新 <code>src/App.tsx</code>。</p></div>
+            <div class="activity"><time>10:42:36</time><p><strong>write</strong> 已创建 RunGroup 组件。</p></div>
+            <div class="activity"><time>10:41:58</time><p>收到用户任务，开始执行。</p></div>
+          </section>
+          <section class="tab-panel" data-panel="settings" hidden>
+            <div class="setting-row"><span>自动压缩</span><button class="toggle on" aria-label="切换自动压缩" aria-pressed="true"></button></div>
+            <div class="setting-row"><span>失败自动重试</span><button class="toggle on" aria-label="切换失败自动重试" aria-pressed="true"></button></div>
+            <div class="setting-row"><span>Steer 消费</span><strong class="micro">ALL</strong></div>
+            <div class="setting-row"><span>Follow-up 消费</span><strong class="micro">ALL</strong></div>
+          </section>
+        </div>
+      </div>
+    </aside>
+    <button class="scrim" id="scrim" aria-label="关闭侧区"></button>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script>
+    (() => {
+      const app = document.getElementById('app');
+      const historyToggle = document.getElementById('historyToggle');
+      const inspectorToggle = document.getElementById('inspectorToggle');
+      const toast = document.getElementById('toast');
+      let toastTimer;
+
+      const announce = (message) => {
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 1700);
+      };
+
+      const setPanel = (panel, open) => {
+        const closedClass = panel === 'history' ? 'history-closed' : 'inspector-closed';
+        app.classList.toggle(closedClass, !open);
+        const toggle = panel === 'history' ? historyToggle : inspectorToggle;
+        toggle.setAttribute('aria-pressed', String(open));
+      };
+
+      historyToggle.addEventListener('click', () => {
+        const willOpen = app.classList.contains('history-closed');
+        if (matchMedia('(max-width: 720px)').matches && willOpen) setPanel('inspector', false);
+        setPanel('history', willOpen);
+      });
+      inspectorToggle.addEventListener('click', () => {
+        const willOpen = app.classList.contains('inspector-closed');
+        if (matchMedia('(max-width: 720px)').matches && willOpen) setPanel('history', false);
+        setPanel('inspector', willOpen);
+      });
+      document.getElementById('inspectorClose').addEventListener('click', () => setPanel('inspector', false));
+      document.getElementById('scrim').addEventListener('click', () => {
+        setPanel('history', false);
+        setPanel('inspector', false);
+      });
+
+      document.querySelectorAll('.tool-toggle').forEach((button) => {
+        button.addEventListener('click', () => {
+          const detail = button.nextElementSibling;
+          const isOpen = button.getAttribute('aria-expanded') === 'true';
+          button.setAttribute('aria-expanded', String(!isOpen));
+          detail.hidden = isOpen;
+          button.querySelector('.expand-mark').textContent = isOpen ? '＋' : '−';
+        });
+      });
+
+      document.querySelectorAll('[role="tab"]').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('[role="tab"]').forEach((item) => item.setAttribute('aria-selected', String(item === tab)));
+          document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.dataset.panel !== tab.dataset.tab; });
+        });
+      });
+
+      document.querySelectorAll('.toggle').forEach((toggle) => {
+        toggle.addEventListener('click', () => {
+          const on = !toggle.classList.contains('on');
+          toggle.classList.toggle('on', on);
+          toggle.setAttribute('aria-pressed', String(on));
+        });
+      });
+
+      const search = document.getElementById('conversationSearch');
+      search.addEventListener('input', () => {
+        const query = search.value.trim().toLowerCase();
+        document.querySelectorAll('.conversation').forEach((item) => {
+          item.hidden = query && !item.dataset.search.toLowerCase().includes(query);
+        });
+      });
+
+      document.querySelectorAll('.conversation').forEach((item) => {
+        item.addEventListener('click', () => {
+          document.querySelectorAll('.conversation').forEach((other) => other.classList.remove('active'));
+          item.classList.add('active');
+          announce('已切换到「' + item.querySelector('strong').textContent + '」');
+          if (matchMedia('(max-width: 720px)').matches) setPanel('history', false);
+        });
+      });
+
+      document.getElementById('sendButton').addEventListener('click', () => {
+        const prompt = document.getElementById('prompt');
+        if (!prompt.value.trim()) return announce('请先输入消息');
+        announce('消息已加入 Follow-up 队列');
+        prompt.value = '';
+      });
+      document.getElementById('prompt').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          document.getElementById('sendButton').click();
+        }
+      });
+      document.getElementById('steerButton').addEventListener('click', (event) => {
+        event.currentTarget.classList.add('active');
+        document.getElementById('followButton').classList.remove('active');
+        announce('发送行为：Steer');
+      });
+      document.getElementById('followButton').addEventListener('click', (event) => {
+        event.currentTarget.classList.add('active');
+        document.getElementById('steerButton').classList.remove('active');
+        announce('发送行为：Follow-up');
+      });
+      document.getElementById('stopButton').addEventListener('click', () => announce('已请求停止当前运行'));
+      document.getElementById('imageButton').addEventListener('click', () => announce('图片输入已就绪'));
+      document.getElementById('newChat').addEventListener('click', () => announce('已创建新会话草稿'));
+      document.getElementById('modelButton').addEventListener('click', () => announce('当前：Kimi K2.7 Code · thinking medium'));
+      document.getElementById('compactButton').addEventListener('click', () => announce('上下文压缩请求已排队'));
+
+      if (matchMedia('(max-width: 720px)').matches) {
+        setPanel('history', false);
+        setPanel('inspector', false);
+      }
+    })();
+  </script>
+</body>
+</html>
