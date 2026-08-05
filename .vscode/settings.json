@@ -1,1 +1,10 @@
-../../.vscode/settings.json
+{
+    "cSpell.words": [
+        "duckdb",
+        "highspeed",
+        "typebox",
+        "ZHIPU",
+        "huashu",
+        "alchaincyf"
+    ]
+}
