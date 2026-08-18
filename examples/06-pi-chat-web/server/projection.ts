@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolRun } from "../shared/types";
+import type { ChatMessage, ToolRun } from "@shared/types";
 
 interface EntryLike {
   id: string;

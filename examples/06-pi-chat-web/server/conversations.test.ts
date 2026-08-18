@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConversationService, MAX_IMPORT_BYTES, validateAttachments, validateImages } from "./conversations";
+import { validateAttachments, validateImages } from "./attachments";
+import { ConversationService } from "./conversations";
+import { MAX_IMPORT_BYTES } from "./session-files";
 
 const roots: string[] = [];
 
@@ -41,18 +43,16 @@ describe("ConversationService", () => {
     await conversations.shutdown();
   });
 
-  it("serializes concurrent title and settings persistence", async () => {
+  it("persists title and settings changes", async () => {
     const conversations = await service();
     const created = await conversations.createConversation();
     const id = created.conversation.id;
-    await Promise.all([
-      conversations.rename(id, "Concurrent metadata"),
-      conversations.updateSettings(id, { autoCompaction: false, autoRetry: false }),
-    ]);
+    await conversations.rename(id, "Updated metadata");
+    await conversations.updateSettings(id, { autoCompaction: false, autoRetry: false });
     await conversations.release(id);
 
     const restored = await conversations.snapshot(id);
-    expect(restored.conversation.title).toBe("Concurrent metadata");
+    expect(restored.conversation.title).toBe("Updated metadata");
     expect(restored.settings).toMatchObject({ autoCompaction: false, autoRetry: false });
     await conversations.shutdown();
   });

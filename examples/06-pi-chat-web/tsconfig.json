@@ -16,8 +16,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["node", "vite/client", "vitest/globals", "@testing-library/jest-dom"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@server/*": ["./server/*"],
+      "@shared/*": ["./shared/*"]
+    }
   },
   "include": ["src", "server", "shared", "vite.config.ts", "vitest.config.ts"]
 }

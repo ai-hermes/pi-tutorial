@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it, vi } from "vitest";
-import type { ConversationSnapshot } from "../shared/types";
+import type { ConversationSnapshot } from "@shared/types";
 import { createApp } from "./app";
 import type { ConversationService } from "./conversations";
 

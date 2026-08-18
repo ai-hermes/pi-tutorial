@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ActivityItem, StreamEvent } from "../shared/types";
+import type { ActivityItem, StreamEvent } from "@shared/types";
 
 type Listener = (event: StreamEvent) => void;
 

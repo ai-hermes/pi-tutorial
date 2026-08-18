@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web -c green,cyan \"pnpm server:dev\" \"pnpm web:dev\"",
+    "dev": "concurrently -k -n api,web -c green,cyan \"pnpm server:dev\" \"wait-on http-get://127.0.0.1:4328/api/health && pnpm web:dev\"",
     "server:dev": "tsx watch --env-file-if-exists=../../.env server/index.ts",
     "web:dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
@@ -46,6 +46,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^9.1.0"
   }
 }

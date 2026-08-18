@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
-import { createApp } from "./app";
-import { ConversationService } from "./conversations";
+import { createApp } from "@server/app";
+import { ConversationService } from "@server/conversations";
 
 const service = await ConversationService.create();
 const app = createApp(service);
