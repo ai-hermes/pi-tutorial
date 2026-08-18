@@ -12,28 +12,53 @@ const controls = {
 };
 
 describe("Composer", () => {
-  it("uses the no-highlight composer focus treatment", () => {
+  it("uses the spacious composer shell and rounded input", () => {
     const { container } = render(<Composer {...controls} thinkingLevels={[...controls.thinkingLevels]} status="ready" imageInput onSend={vi.fn()} onAbort={vi.fn()} />);
-    expect(screen.getByTestId("composer-input")).toHaveClass("composer-input");
-    expect(screen.getByLabelText("向 Pi Chat 提问")).toHaveClass("min-h-11", "text-sm");
-    expect(container.querySelector('[data-slot="composer-shell"]')).toHaveClass("pt-2", "md:pb-3");
+    expect(screen.getByTestId("composer-input")).toHaveClass("composer-input", "rounded-xl", "border-border");
+    expect(screen.getByLabelText("向 Pi Chat 提问")).toHaveClass("min-h-14", "text-sm");
+    expect(container.querySelector('[data-slot="composer-shell"]')).toHaveClass("pt-2", "md:pb-5");
+    expect(container.querySelector('[data-slot="composer-shell"]')).not.toHaveClass("border-t");
   });
 
-  it("chooses steer or follow-up while the agent is running", async () => {
+  it("defaults running messages to follow-up and allows switching to steer", async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     render(<Composer {...controls} thinkingLevels={[...controls.thinkingLevels]} status="running" imageInput onSend={onSend} onAbort={vi.fn()} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/steer/i), { target: { value: "adjust this" } });
-    fireEvent.click(screen.getByRole("radio", { name: "Steer 当前运行" }));
+    expect(screen.getByRole("button", { name: "选择消息投递方式，当前 Follow-up" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Follow-up/i), { target: { value: "continue this" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith("continue this", [], "followUp"));
+
+    fireEvent.change(screen.getByPlaceholderText(/Follow-up/i), { target: { value: "adjust this" } });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "选择消息投递方式，当前 Follow-up" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /Steer/ }));
     fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
 
     await waitFor(() => expect(onSend).toHaveBeenCalledWith("adjust this", [], "steer"));
   });
 
+  it("shows queued messages with their delivery behavior while running", () => {
+    render(<Composer
+      {...controls}
+      thinkingLevels={[...controls.thinkingLevels]}
+      status="running"
+      imageInput
+      queue={{ steering: ["改用深色主题"], followUp: ["再补充测试"] }}
+      onSend={vi.fn()}
+      onAbort={vi.fn()}
+    />);
+
+    const queue = screen.getByTestId("queued-messages");
+    expect(queue).toHaveTextContent("改用深色主题");
+    expect(queue).toHaveTextContent("Steer");
+    expect(queue).toHaveTextContent("再补充测试");
+    expect(queue).toHaveTextContent("Follow-up");
+  });
+
   it("blocks new messages while compacting", () => {
     render(<Composer {...controls} thinkingLevels={[...controls.thinkingLevels]} status="compacting" imageInput onSend={vi.fn()} onAbort={vi.fn()} />);
     expect(screen.getByPlaceholderText("正在压缩上下文…")).toBeDisabled();
-    expect(screen.queryByRole("radio", { name: "Steer 当前运行" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /选择消息投递方式/ })).not.toBeInTheDocument();
   });
 
   it("keeps the draft when sending fails", async () => {
@@ -74,7 +99,7 @@ describe("Composer", () => {
   it("keeps permission, model, and thinking controls in the composer toolbar", () => {
     render(<Composer {...controls} thinkingLevels={[...controls.thinkingLevels]} status="ready" imageInput onSend={vi.fn()} onAbort={vi.fn()} />);
     expect(screen.getByRole("button", { name: "权限：本机完整权限" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "模型 GPT-5.6 Sol，思考深度 High" })).toHaveClass("focus-visible:ring-0", "focus-visible:border-transparent");
+    expect(screen.getByRole("button", { name: "模型 GPT-5.6 Sol，思考深度 High" })).toHaveClass("focus-visible:ring-0");
   });
 
   it("switches model and thinking depth from cascading menus", async () => {

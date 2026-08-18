@@ -13,6 +13,7 @@ import {
 } from "./api";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { Composer } from "./components/Composer";
+import { ConversationSettingsDialog } from "./components/ConversationSettingsDialog";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { HarnessSheet } from "./components/HarnessSheet";
 import { snapshotReducer } from "./state";
@@ -24,6 +25,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [conversationEntered, setConversationEntered] = useState(false);
   const initialized = useRef(false);
   const pendingEvents = useRef<StreamEvent[]>([]);
@@ -66,7 +68,10 @@ export default function App() {
     Promise.all([getBootstrap(), listConversations()]).then(async ([boot, items]) => {
       setBootstrap(boot);
       setConversations(items);
-      if (items[0]) dispatch({ type: "snapshot", snapshot: await getConversation(items[0].id) });
+      if (items[0]) {
+        dispatch({ type: "snapshot", snapshot: await getConversation(items[0].id) });
+        setConversationEntered(true);
+      }
       else dispatch({ type: "snapshot", snapshot: await createConversation() });
     }).then(refreshList).catch(report).finally(() => setLoading(false));
   }, []);
@@ -77,6 +82,7 @@ export default function App() {
       if (event.type === "snapshot.required" || event.type === "runtime.settled") {
         getConversation(snapshot.conversation.id).then((next) => dispatch({ type: "snapshot", snapshot: next })).then(refreshList).catch(report);
       } else {
+        if (event.type === "conversation.renamed") refreshList().catch(report);
         pendingEvents.current.push(event);
         if (eventFrame.current === undefined) {
           eventFrame.current = requestAnimationFrame(() => {
@@ -109,35 +115,37 @@ export default function App() {
       onSelect={(id) => { openConversation(id).catch(report); }}
       onNew={newConversation}
       onImport={importSession}
+      repository={bootstrap?.repository}
+      onSettings={() => setSettingsOpen(true)}
       onRename={async (id, title) => guarded(async () => { await renameConversation(id, title); await refreshList(); if (snapshot?.conversation.id === id) dispatch({ type: "snapshot", snapshot: await getConversation(id) }); }, "已重命名")}
       onDelete={async (id) => guarded(async () => {
         await deleteConversation(id);
-        const remaining = await listConversations();
-        setConversations(remaining);
+        const next = await listConversations();
+        setConversations(next);
         if (snapshot?.conversation.id === id) {
-          if (remaining[0]) dispatch({ type: "snapshot", snapshot: await getConversation(remaining[0].id) });
+          if (next[0]) dispatch({ type: "snapshot", snapshot: await getConversation(next[0].id) });
           else dispatch({ type: "snapshot", snapshot: await createConversation() });
         }
-      }, "对话已删除")}
+      }, "已删除")}
     />
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background md:flex-row">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header data-slot="app-header" className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 md:px-4">
         <SidebarTrigger className="size-8 border bg-background" />
         <div className="min-w-0">
-          <p className="truncate font-mono text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">workspace / {conversationEntered && snapshot?.conversation.parentId ? "shared branch" : "local"}</p>
-          <h1 className="truncate text-[var(--type-section)] leading-4">{conversationEntered ? snapshot?.conversation.title : "新对话"}</h1>
+          <h1 className="truncate text-[var(--type-section)] leading-5">{conversationEntered ? snapshot?.conversation.title : "新对话"}</h1>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <span className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2 text-xs text-muted-foreground sm:inline-flex" title={connected ? "实时连接正常" : "正在重新连接"}>
+          <span className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md bg-transparent px-2 text-xs text-muted-foreground sm:inline-flex" title={connected ? "实时连接正常" : "正在重新连接"}>
             <RadioTowerIcon className={connected ? "size-3.5 text-success" : "size-3.5 text-muted-foreground"} />
             {connected ? "Live" : "Reconnecting"}
           </span>
-          <Tooltip><TooltipTrigger asChild><Button variant={inspectorOpen ? "secondary" : "outline"} size="xs" className="h-7 bg-background px-2" aria-label="打开 Harness 检查器" disabled={!snapshot} onClick={() => setInspectorOpen(true)}><PanelRightIcon /><span className="hidden sm:inline">Harness</span></Button></TooltipTrigger><TooltipContent>运行状态、上下文与设置</TooltipContent></Tooltip>
+          <Tooltip><TooltipTrigger asChild><Button variant={inspectorOpen ? "secondary" : "ghost"} size="icon-sm" className="size-8 bg-transparent shadow-none" aria-label="打开会话明细" disabled={!snapshot} onClick={() => setInspectorOpen(true)}><PanelRightIcon className="size-4.5" /></Button></TooltipTrigger><TooltipContent>会话明细</TooltipContent></Tooltip>
         </div>
       </header>
 
-      {loading || !snapshot ? <LoadingState /> : <>
-        <ChatTimeline showWelcome={!conversationEntered} conversationId={snapshot.conversation.id} messages={snapshot.messages} tools={snapshot.tools} onBranch={async (entryId, text) => guarded(async () => { const next = await branchConversation(snapshot.conversation.id, entryId, text); dispatch({ type: "snapshot", snapshot: next }); setConversationEntered(true); await refreshList(); }, "分支已创建")} />
+      {!snapshot ? <LoadingState /> : <>
+        <ChatTimeline showWelcome={!conversationEntered} conversationId={snapshot.conversation.id} messages={snapshot.messages} tools={snapshot.tools} thinking={snapshot.thinking} onBranch={async (entryId, text) => guarded(async () => { const next = await branchConversation(snapshot.conversation.id, entryId, text); dispatch({ type: "snapshot", snapshot: next }); setConversationEntered(true); await refreshList(); }, "分支已创建")} />
         <Composer
           status={snapshot.status}
           imageInput={selectedModel?.imageInput ?? false}
@@ -145,7 +153,7 @@ export default function App() {
           model={snapshot.model}
           thinkingLevel={snapshot.thinkingLevel}
           thinkingLevels={snapshot.availableThinkingLevels}
-          queued={snapshot.queue.steering.length + snapshot.queue.followUp.length}
+          queue={snapshot.queue}
           onSend={async (text, images, behavior: QueueBehavior) => {
             setConversationEntered(true);
             const optimistic: ChatMessage = {
@@ -169,15 +177,20 @@ export default function App() {
           onModelChange={async (provider, id) => guarded(async () => { await setModel(snapshot.conversation.id, provider, id); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
           onThinkingChange={async (level) => guarded(async () => { await setThinking(snapshot.conversation.id, level); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
         />
-        {bootstrap && <HarnessSheet
-          open={inspectorOpen}
-          onOpenChange={setInspectorOpen}
-          snapshot={snapshot}
-          warning={bootstrap.warning}
-          onCompact={async (instructions) => guarded(async () => { await compactConversation(snapshot.conversation.id, instructions); }, "已开始压缩")}
-          onSettings={async (patch: Partial<ConversationSettings>) => guarded(async () => { await updateConversationSettings(snapshot.conversation.id, patch); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
-        />}
       </>}
+      </main>
+    {bootstrap && snapshot && <HarnessSheet
+      open={inspectorOpen}
+      onOpenChange={setInspectorOpen}
+      snapshot={snapshot}
+      onCompact={async (instructions) => guarded(async () => { await compactConversation(snapshot.conversation.id, instructions); }, "已开始压缩")}
+    />}
+    <ConversationSettingsDialog
+      open={settingsOpen}
+      onOpenChange={setSettingsOpen}
+      snapshot={snapshot}
+      onSettings={async (patch: Partial<ConversationSettings>) => guarded(async () => { if (!snapshot) return; await updateConversationSettings(snapshot.conversation.id, patch); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
+    />
     </SidebarInset>
   </>;
 }

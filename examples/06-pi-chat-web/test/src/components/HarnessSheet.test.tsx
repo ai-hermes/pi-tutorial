@@ -7,6 +7,7 @@ const snapshot: ConversationSnapshot = {
   conversation: { id: "c1", title: "Test", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", messageCount: 0, workspace: "/tmp/test", status: "ready" },
   messages: [],
   tools: [],
+  thinking: [],
   model: { provider: "openai", id: "test" },
   thinkingLevel: "medium",
   availableThinkingLevels: ["off", "medium"],
@@ -20,19 +21,27 @@ const snapshot: ConversationSnapshot = {
 };
 
 describe("HarnessSheet", () => {
-  it("shows an explicit selected state for each inspector tab", () => {
-    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} warning="not a sandbox" onCompact={vi.fn()} onSettings={vi.fn()} />);
-    const activity = screen.getByRole("tab", { name: "活动" });
-    expect(activity).toHaveAttribute("data-state", "active");
-    expect(activity).toHaveClass("data-active:text-foreground", "after:bg-foreground", "group-data-[variant=line]/tabs-list:data-active:after:opacity-100");
-    expect(activity).not.toHaveClass("data-active:bg-primary");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "设置" }), { button: 0, ctrlKey: false });
-    expect(screen.getByRole("tab", { name: "设置" })).toHaveAttribute("data-state", "active");
+  it("shows activity and context tabs without a settings tab", () => {
+    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} onCompact={vi.fn()} />);
+    expect(screen.getByRole("complementary", { name: "会话明细" })).toHaveClass("md:w-[32rem]");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("会话明细")).toBeInTheDocument();
+    expect(screen.getByText("就绪")).toHaveClass("text-success");
+    expect(screen.getByRole("region", { name: "模型信息" })).toHaveTextContent("openai/test");
+    expect(screen.getByRole("region", { name: "模型信息" })).toHaveTextContent("思考强度 medium");
+    expect(screen.getByRole("tab", { name: "活动" })).toHaveAttribute("data-state", "active");
+    expect(screen.getByRole("tab", { name: "上下文" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "设置" })).not.toBeInTheDocument();
+  });
+
+  it("collapses its layout width when closed", () => {
+    render(<HarnessSheet open={false} onOpenChange={vi.fn()} snapshot={snapshot} onCompact={vi.fn()} />);
+    expect(screen.getByText("会话明细").closest("aside")).toHaveClass("w-0", "pointer-events-none");
   });
 
   it("opens the compaction dialog and submits instructions", async () => {
     const onCompact = vi.fn().mockResolvedValue(undefined);
-    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} warning="not a sandbox" onCompact={onCompact} onSettings={vi.fn()} />);
+    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} onCompact={onCompact} />);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "上下文" }), { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole("button", { name: /压缩上下文/ }));
     fireEvent.change(screen.getByLabelText("自定义摘要指令"), { target: { value: "保留路径" } });
@@ -40,11 +49,13 @@ describe("HarnessSheet", () => {
     await waitFor(() => expect(onCompact).toHaveBeenCalledWith("保留路径"));
   });
 
-  it("updates queue consumption modes", () => {
-    const onSettings = vi.fn().mockResolvedValue(undefined);
-    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} warning="not a sandbox" onCompact={vi.fn()} onSettings={onSettings} />);
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "设置" }), { button: 0, ctrlKey: false });
-    fireEvent.click(screen.getAllByRole("radio", { name: "逐条" })[0]);
-    expect(onSettings).toHaveBeenCalledWith({ steeringMode: "one-at-a-time" });
+  it("copies the session ID without displaying it", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} onCompact={vi.fn()} />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "上下文" }), { button: 0, ctrlKey: false });
+    expect(screen.queryByText(snapshot.stats.sessionId)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "复制 Session ID" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(snapshot.stats.sessionId));
   });
 });

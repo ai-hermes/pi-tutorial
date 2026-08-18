@@ -15,6 +15,7 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  ActivityItem,
   BootstrapData,
   ChatImage,
   ConversationSettings,
@@ -31,6 +32,7 @@ import { assertInside, ensurePaths, idleTtlMs, resolvePaths, SECURITY_WARNING, t
 import { ConversationError } from "@server/errors";
 import { EventBuffer } from "@server/events";
 import { projectEntry, projectTranscript } from "@server/projection";
+import { readRepositoryInfo } from "@server/repository";
 import { MAX_IMPORT_BYTES, validateSessionJsonl } from "@server/session-files";
 
 const FULL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -97,7 +99,7 @@ export class ConversationService {
       reasoning: model.reasoning,
       imageInput: model.input.includes("image"),
     }));
-    return { models, warning: SECURITY_WARNING, idleTtlMs: this.ttlMs, dataDir: this.paths.root };
+    return { models, warning: SECURITY_WARNING, idleTtlMs: this.ttlMs, dataDir: this.paths.root, repository: await readRepositoryInfo() };
   }
 
   async list(): Promise<ConversationSummary[]> {
@@ -195,6 +197,7 @@ export class ConversationService {
       conversation: { ...this.summary(record, active.status), messageCount: projected.messages.length },
       messages: projected.messages,
       tools: projected.tools,
+      thinking: projected.thinking,
       model: { provider: session.agent.state.model.provider, id: session.agent.state.model.id },
       thinkingLevel: session.agent.state.thinkingLevel as ThinkingLevel,
       availableThinkingLevels: session.getAvailableThinkingLevels() as ThinkingLevel[],
@@ -204,7 +207,7 @@ export class ConversationService {
       settings: this.settings(session),
       stats,
       stream: { id: channel.streamId, lastEventId: channel.lastId },
-      activity: channel.activity(),
+      activity: mergeActivity(channel.activity(), projected.activity),
       diagnostics: active.diagnostics,
     };
   }
@@ -269,15 +272,19 @@ export class ConversationService {
       return;
     }
 
+    let generatedTitle: string | undefined;
     await this.updateRecord(id, (record) => {
-      const cleanTitle = titleText.trim();
-      if (record.title === "新对话" && cleanTitle) {
-        const title = cleanTitle.split("\n", 1)[0].slice(0, 48);
-        record.title = title;
-        session.setSessionName(title);
+      if (record.title === "新对话") {
+        const title = conversationTitle(titleText);
+        if (title) {
+          record.title = title;
+          session.setSessionName(title);
+          generatedTitle = title;
+        }
       }
       record.updatedAt = new Date().toISOString();
     });
+    if (generatedTitle) active.events.publish("conversation.renamed", { title: generatedTitle });
     this.setStatus(active, "running");
 
     session.prompt(clean || "请分析附带的图片。", {
@@ -468,8 +475,9 @@ export class ConversationService {
   }
 
   private async load(record: ConversationRecord, manager?: SessionManager): Promise<ActiveConversation> {
-    const sessionManager = manager ?? (existsSync(record.sessionFile)
-      ? SessionManager.open(record.sessionFile, this.paths.sessions)
+    const restoredSessionFile = manager ? undefined : await this.findSessionFile(record);
+    const sessionManager = manager ?? (restoredSessionFile
+      ? SessionManager.open(restoredSessionFile, this.paths.sessions, record.workspace)
       : SessionManager.create(record.workspace, this.paths.sessions, { id: record.id }));
     const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager: nextManager, sessionStartEvent }) => {
       const settingsManager = SettingsManager.inMemory({
@@ -501,6 +509,12 @@ export class ConversationService {
       agentDir: getAgentDir(),
       sessionManager,
     });
+    const sessionFile = runtime.session.sessionFile;
+    if (sessionFile && sessionFile !== record.sessionFile) {
+      await this.updateRecord(record.id, (current) => {
+        current.sessionFile = sessionFile;
+      });
+    }
     if (runtime.session.sessionManager.getSessionName() !== record.title) runtime.session.setSessionName(record.title);
     const active: ActiveConversation = {
       id: record.id,
@@ -513,6 +527,16 @@ export class ConversationService {
     await this.bind(active);
     this.touch(active);
     return active;
+  }
+
+  private async findSessionFile(record: ConversationRecord): Promise<string | undefined> {
+    if (existsSync(record.sessionFile)) return record.sessionFile;
+
+    const suffix = `_${record.id}.jsonl`;
+    const candidates = (await readdir(this.paths.sessions))
+      .filter((file) => file.endsWith(suffix))
+      .sort();
+    return candidates.at(-1) ? assertInside(this.paths.sessions, join(this.paths.sessions, candidates.at(-1)!)) : undefined;
   }
 
   private async bind(active: ActiveConversation): Promise<void> {
@@ -586,6 +610,7 @@ export class ConversationService {
         this.setStatus(active, "ready");
         active.events.publish("runtime.settled", {});
         this.updateRecord(active.id, (record) => {
+          record.sessionFile = active.runtime.session.sessionFile ?? record.sessionFile;
           record.updatedAt = new Date().toISOString();
         }).catch((error: unknown) => this.fail(active, error));
         this.touch(active);
@@ -682,6 +707,18 @@ export class ConversationService {
     return record;
   }
 
+}
+
+function conversationTitle(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+}
+
+function mergeActivity(live: ActivityItem[], history: ActivityItem[]): ActivityItem[] {
+  const historyKeys = new Set(history.flatMap((item) => item.sourceId ? [`${item.type}:${item.sourceId}`] : []));
+  return [...live.filter((item) => !item.sourceId || !historyKeys.has(`${item.type}:${item.sourceId}`)), ...history].slice(0, 100);
 }
 
 async function loadConfiguredProviderExtensions(modelRuntime: ModelRuntime, cwd: string): Promise<void> {

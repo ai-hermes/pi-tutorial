@@ -162,15 +162,10 @@
     transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  [data-slot="input-group"]:not(.composer-input):focus-within {
-    border-color: var(--ring);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 14%, transparent);
-  }
-
   .composer-input[data-slot="input-group"],
   .composer-input[data-slot="input-group"]:focus-within {
-    border-color: var(--input) !important;
-    box-shadow: none !important;
+    border-color: var(--border) !important;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.02) !important;
     outline: none !important;
   }
 

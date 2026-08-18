@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpIcon, ChevronDownIcon, CircleIcon, FileIcon, LoaderCircleIcon, OctagonIcon, PlusIcon, RouteIcon, ShieldAlertIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, FileIcon, LoaderCircleIcon, OctagonIcon, PlusIcon, RouteIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ModelOption, QueueBehavior, RuntimeStatus, ThinkingLevel } from "../../shared/types";
 
 interface Props {
@@ -19,7 +18,7 @@ interface Props {
   model: { provider: string; id: string };
   thinkingLevel: ThinkingLevel;
   thinkingLevels: ThinkingLevel[];
-  queued?: number;
+  queue?: { steering: string[]; followUp: string[] };
   onSend(text: string, files: File[], behavior: QueueBehavior): Promise<void>;
   onAbort(): Promise<void>;
   onModelChange(provider: string, id: string): Promise<void>;
@@ -27,7 +26,7 @@ interface Props {
 }
 
 export function Composer({
-  status, imageInput, models, model, thinkingLevel, thinkingLevels, queued = 0,
+  status, imageInput, models, model, thinkingLevel, thinkingLevels, queue = { steering: [], followUp: [] },
   onSend, onAbort, onModelChange, onThinkingChange,
 }: Props) {
   const [text, setText] = useState("");
@@ -38,6 +37,7 @@ export function Composer({
   const busy = status === "running" || status === "stopping" || status === "compacting";
   const queueing = status === "running";
   const blocked = status === "stopping" || status === "compacting";
+  const queued = queue.steering.length + queue.followUp.length;
 
   const submit = async () => {
     if ((!text.trim() && files.length === 0) || submitting || blocked) return;
@@ -57,11 +57,11 @@ export function Composer({
     setFiles((current) => [...current, ...[...nextFiles]].slice(0, 5));
   };
 
-  return <div data-slot="composer-shell" className="shrink-0 border-t bg-background px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-2 md:px-4 md:pb-3">
+  return <div data-slot="composer-shell" className="shrink-0 bg-background px-2.5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2 md:px-4 md:pb-5">
     <div className="mx-auto w-full max-w-[60rem]">
-      {queueing && <div className="mb-1.5 flex min-h-7 items-center justify-between gap-3 border-l-2 border-foreground bg-surface-subtle px-2.5 py-1 text-xs text-body"><span className="flex items-center gap-2"><CircleIcon className="size-2.5 fill-success text-success" />Pi 正在运行，可插入方向或排队下一步</span>{queued > 0 && <span className="font-mono">Queue {queued}</span>}</div>}
+      {queueing && queued > 0 && <QueuePreview queue={queue} />}
       <Field>
-      <InputGroup data-testid="composer-input" className="composer-input h-auto rounded-lg border bg-background has-disabled:bg-background has-disabled:opacity-100">
+      <InputGroup data-testid="composer-input" className="composer-input h-auto rounded-xl border border-border bg-background transition-[border-color,box-shadow] duration-150 has-disabled:bg-background has-disabled:opacity-100">
         {files.length > 0 && <div data-testid="attachment-tray" className="flex w-full flex-wrap gap-2 px-3 pt-3">
           {files.map((file, index) => <AttachmentPreview
             key={`${file.name}-${file.lastModified}-${index}`}
@@ -77,20 +77,17 @@ export function Composer({
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit().catch(() => undefined); }
           }}
-          placeholder={queueing ? "输入一条 steer 或 follow-up 消息…" : status === "compacting" ? "正在压缩上下文…" : status === "stopping" ? "正在停止…" : "向 Pi Chat 提问…"}
+          placeholder={queueing ? `输入消息，将作为 ${queueBehaviorLabel(behavior)} 发送…` : status === "compacting" ? "正在压缩上下文…" : status === "stopping" ? "正在停止…" : "向 Pi Chat 提问…"}
           disabled={blocked}
           rows={1}
-          className="max-h-40 min-h-11 px-3.5 pt-2.5 text-sm leading-6"
+          className="max-h-40 min-h-14 px-3.5 pt-3 text-sm leading-6"
         />
         <InputGroupAddon align="block-end" className="min-h-8 justify-between px-2.5 pb-1.5">
           <div className="flex min-w-0 items-center gap-1.5">
             <input ref={fileInput} type="file" aria-label="选择附件" multiple className="sr-only" onChange={(event) => addFiles(event.target.files)} />
             <InputGroupButton size="icon-sm" aria-label="添加附件" disabled={files.length >= 5} onClick={() => fileInput.current?.click()}><PlusIcon /></InputGroupButton>
             <PermissionMenu />
-            {queueing && <ToggleGroup type="single" value={behavior} onValueChange={(value) => { if (value) setBehavior(value as QueueBehavior); }} variant="outline" size="sm">
-              <ToggleGroupItem value="steer" aria-label="Steer 当前运行"><RouteIcon />Steer</ToggleGroupItem>
-              <ToggleGroupItem value="followUp" aria-label="运行后继续"><ArrowUpIcon />排队</ToggleGroupItem>
-            </ToggleGroup>}
+            {queueing && <QueueBehaviorMenu behavior={behavior} onValueChange={setBehavior} />}
             {queued > 0 && !queueing && <Badge variant="outline" className="font-mono text-xs font-normal">Queue {queued}</Badge>}
           </div>
           <div className="flex items-center gap-1.5">
@@ -136,6 +133,56 @@ export function PermissionMenu() {
   </DropdownMenu>;
 }
 
+function QueuePreview({ queue }: { queue: { steering: string[]; followUp: string[] } }) {
+  const items = [
+    ...queue.steering.map((text, index) => ({ id: `steer-${index}`, behavior: "steer" as const, text })),
+    ...queue.followUp.map((text, index) => ({ id: `follow-up-${index}`, behavior: "followUp" as const, text })),
+  ];
+
+  return <div data-testid="queued-messages" className="mb-2 overflow-hidden rounded-xl border border-border bg-background px-3 py-1.5">
+    {items.map((item) => <div key={item.id} className="flex min-h-8 items-center gap-2.5 py-1 text-sm">
+      {item.behavior === "steer" ? <RouteIcon className="size-4 shrink-0 text-muted-foreground" /> : <ArrowUpIcon className="size-4 shrink-0 text-muted-foreground" />}
+      <span className="min-w-0 flex-1 truncate">{item.text || "附件消息"}</span>
+      <span className="shrink-0 text-muted-foreground">{queueBehaviorLabel(item.behavior)}</span>
+    </div>)}
+  </div>;
+}
+
+function QueueBehaviorMenu({ behavior, onValueChange }: { behavior: QueueBehavior; onValueChange(value: QueueBehavior): void }) {
+  const Icon = behavior === "steer" ? RouteIcon : ArrowUpIcon;
+
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <InputGroupButton aria-label={`选择消息投递方式，当前 ${queueBehaviorLabel(behavior)}`} className="gap-1.5">
+        <Icon />
+        <span>{queueBehaviorLabel(behavior)}</span>
+        <ChevronDownIcon />
+      </InputGroupButton>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent side="top" align="start" className="w-64">
+      <DropdownMenuLabel>运行中消息</DropdownMenuLabel>
+      <DropdownMenuRadioGroup value={behavior} onValueChange={(value) => onValueChange(value as QueueBehavior)}>
+        <DropdownMenuRadioItem value="followUp" className="items-start py-2">
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 font-medium"><ArrowUpIcon className="size-4" />Follow-up</span>
+            <span className="text-xs leading-4 text-muted-foreground">当前运行完成后继续处理</span>
+          </span>
+        </DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="steer" className="items-start py-2">
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex items-center gap-1.5 font-medium"><RouteIcon className="size-4" />Steer</span>
+            <span className="text-xs leading-4 text-muted-foreground">向当前运行追加方向</span>
+          </span>
+        </DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>;
+}
+
+function queueBehaviorLabel(behavior: QueueBehavior): string {
+  return behavior === "steer" ? "Steer" : "Follow-up";
+}
+
 function ModelThinkingMenu({
   disabled, models, model, thinkingLevel, thinkingLevels, onModelChange, onThinkingChange,
 }: {
@@ -164,7 +211,7 @@ function ModelThinkingMenu({
 
   return <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      <InputGroupButton disabled={disabled} className="max-w-52 gap-1.5 border-transparent text-muted-foreground focus-visible:border-transparent focus-visible:ring-0" aria-label={`模型 ${modelName}，思考深度 ${thinkingLabel(thinkingLevel)}`}>
+      <InputGroupButton disabled={disabled} className="max-w-52 gap-1.5 border-transparent text-muted-foreground focus-visible:ring-0" aria-label={`模型 ${modelName}，思考深度 ${thinkingLabel(thinkingLevel)}`}>
         <span className="max-w-24 truncate sm:max-w-32">{compactName}</span>
         <span>{thinkingLabel(thinkingLevel)}</span>
         <ChevronDownIcon />

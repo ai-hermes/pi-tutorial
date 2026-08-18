@@ -39,6 +39,12 @@ export interface ToolRun {
   endedAt?: number;
 }
 
+export interface ThinkingBlock {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
 export interface SessionStats {
   sessionId: string;
   userMessages: number;
@@ -74,12 +80,14 @@ export interface ActivityItem {
   type: string;
   timestamp: string;
   summary: string;
+  sourceId?: string;
 }
 
 export interface ConversationSnapshot {
   conversation: ConversationSummary;
   messages: ChatMessage[];
   tools: ToolRun[];
+  thinking: ThinkingBlock[];
   model: { provider: string; id: string };
   thinkingLevel: ThinkingLevel;
   availableThinkingLevels: ThinkingLevel[];
@@ -98,6 +106,12 @@ export interface BootstrapData {
   warning: string;
   idleTtlMs: number;
   dataDir: string;
+  repository?: RepositoryInfo;
+}
+
+export interface RepositoryInfo {
+  branch: string;
+  commit: string;
 }
 
 export interface StreamEvent<T = unknown> {

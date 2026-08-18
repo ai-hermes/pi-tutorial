@@ -30,6 +30,21 @@ describe("ChatTimeline", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("const answer = 42");
   });
 
+  it("shows a relative timestamp below each message", () => {
+    const timestamp = Date.now() - 5 * 60_000;
+    render(<ChatTimeline messages={[{ id: "a", role: "assistant", text: "Answer", images: [], timestamp }]} tools={[]} onBranch={vi.fn()} />);
+    expect(screen.getByText("5 分钟前")).toBeInTheDocument();
+  });
+
+  it("renders thinking as a separate collapsible timeline node", () => {
+    render(<ChatTimeline messages={[{ id: "a", role: "assistant", text: "Answer", images: [], timestamp: 2 }]} tools={[]} thinking={[{ id: "a:thinking", text: "Reasoning details", timestamp: 1 }]} onBranch={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /思考过程/ })).toBeInTheDocument();
+    expect(screen.queryByText("Reasoning details")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /思考过程/ }));
+    expect(screen.getByText("Reasoning details")).toBeInTheDocument();
+    expect(screen.getAllByRole("article")[0]).toHaveTextContent("Answer");
+  });
+
   it("edits a user message into a branch", async () => {
     const onBranch = vi.fn().mockResolvedValue(undefined);
     render(<ChatTimeline messages={[{ id: "u1", role: "user", text: "original", images: [], timestamp: 1 }]} tools={[]} onBranch={onBranch} />);
@@ -62,11 +77,11 @@ describe("ChatTimeline", () => {
     ]} tools={[]} onBranch={vi.fn()} />);
 
     const articles = screen.getAllByRole("article");
-    expect(articles[0].querySelector('[data-slot="message-bubble"]')).toHaveClass("bg-muted", "px-3.5");
+    expect(articles[0].querySelector('[data-slot="message-bubble"]')).toHaveClass("bg-muted", "rounded-2xl", "px-3", "py-2");
     expect(articles[1].querySelector('[data-slot="message-bubble"]')).toHaveClass("bg-transparent", "px-0");
     for (const article of articles) {
-      expect(article).toHaveClass("py-2");
-      expect(article.querySelector('[data-slot="message-bubble"]')).toHaveClass("text-sm", "py-2.5");
+      expect(article).toHaveClass("py-1");
+      expect(article.querySelector('[data-slot="message-bubble"]')).toHaveClass("text-sm");
       const actions = article.querySelector('[data-slot="message-actions"]');
       expect(actions).toBeInTheDocument();
       expect(actions?.closest('[data-slot="message-bubble"]')).toBeNull();
@@ -85,7 +100,7 @@ describe("ChatTimeline", () => {
     expect(articles[1]).toHaveTextContent("Answer");
   });
 
-  it("groups consecutive tool calls into one run with a status summary", () => {
+  it("renders consecutive tool calls without an outer run summary", () => {
     const { container } = render(<ChatTimeline conversationId="c1" messages={[
       { id: "u1", role: "user", text: "Build it", images: [], timestamp: 1 },
       { id: "a1", role: "assistant", text: "Working", images: [], timestamp: 2 },
@@ -95,17 +110,12 @@ describe("ChatTimeline", () => {
       { id: "t3", name: "bash", args: { command: "test" }, status: "error", result: "exit code: 1", startedAt: 7, endedAt: 8 },
     ]} onBranch={vi.fn()} />);
 
-    expect(screen.getByText("执行记录")).toBeInTheDocument();
-    expect(screen.getByText("01")).toHaveClass("font-mono");
-    expect(screen.getByText("3 个步骤 · 含失败步骤")).toBeInTheDocument();
-    expect(screen.getByText("2 成功")).toBeInTheDocument();
-    expect(screen.getByText("1 失败")).toBeInTheDocument();
-    expect(container.querySelector('[data-slot="run-steps"]')).toHaveClass("divide-y");
+    expect(screen.queryByText("执行记录")).not.toBeInTheDocument();
+    expect(screen.queryByText("3 个步骤 · 含失败步骤")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="run-steps"]')).not.toHaveClass("divide-y");
     expect(container.querySelectorAll('[data-slot="tool-call-row"]')).toHaveLength(3);
     expect(container.querySelector('[data-slot="tool-call-row"]')).not.toHaveClass("rounded-lg", "border");
-    expect(container.querySelector('[data-slot="run-group"]')).toHaveClass("rounded-md", "border", "bg-card");
     expect(container.querySelector('[data-slot="run-group-row"]')).not.toHaveClass("md:pl-10");
-    expect(container.querySelector('[data-slot="run-group"] > button')).toHaveClass("min-h-11");
     expect(container.querySelector('[data-slot="tool-call-row"] > button')).toHaveClass("min-h-10");
   });
 });

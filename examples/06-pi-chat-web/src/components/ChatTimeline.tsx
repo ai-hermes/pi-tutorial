@@ -1,15 +1,16 @@
 import { Children, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDownIcon, CheckIcon, CopyIcon, FilesIcon, GitBranchIcon, HistoryIcon, LoaderCircleIcon, PencilIcon, TerminalSquareIcon } from "lucide-react";
+import { ArrowDownIcon, BrainCircuitIcon, CheckIcon, ChevronRightIcon, CopyIcon, FilesIcon, GitBranchIcon, HistoryIcon, LoaderCircleIcon, PencilIcon, TerminalSquareIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, ToolRun } from "../../shared/types";
+import type { ChatMessage, ThinkingBlock, ToolRun } from "../../shared/types";
 import { PiLogo } from "./PiLogo";
 import { RunGroup } from "./RunGroup";
 
@@ -18,18 +19,20 @@ interface Props {
   showWelcome?: boolean;
   messages: ChatMessage[];
   tools: ToolRun[];
+  thinking?: ThinkingBlock[];
   onBranch(entryId: string, text: string): Promise<void>;
 }
 
-export function ChatTimeline({ conversationId, showWelcome = false, messages, tools, onBranch }: Props) {
+export function ChatTimeline({ conversationId, showWelcome = false, messages, tools, thinking = [], onBranch }: Props) {
   const [branchMessage, setBranchMessage] = useState<ChatMessage>();
   const [branchText, setBranchText] = useState("");
   const [branching, setBranching] = useState(false);
   const [showLatest, setShowLatest] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const rootRef = useRef<HTMLDivElement>(null);
   const following = useRef(true);
-  const timeline = useMemo(() => groupTimeline(messages, tools), [messages, tools]);
-  const contentVersion = `${timeline.length}:${messages.at(-1)?.text.length ?? 0}:${messages.at(-1)?.streaming ?? false}:${tools.at(-1)?.status ?? ""}:${tools.at(-1)?.result?.length ?? 0}`;
+  const timeline = useMemo(() => groupTimeline(messages, tools, thinking), [messages, tools, thinking]);
+  const contentVersion = `${timeline.length}:${messages.at(-1)?.text.length ?? 0}:${messages.at(-1)?.streaming ?? false}:${tools.at(-1)?.status ?? ""}:${tools.at(-1)?.result?.length ?? 0}:${thinking.at(-1)?.text.length ?? 0}`;
 
   const viewport = () => rootRef.current?.querySelector<HTMLElement>("[data-slot='scroll-area-viewport']");
   const jumpToLatest = (behavior: ScrollBehavior = "smooth") => {
@@ -52,6 +55,11 @@ export function ChatTimeline({ conversationId, showWelcome = false, messages, to
     element.addEventListener("scroll", onScroll, { passive: true });
     return () => element.removeEventListener("scroll", onScroll);
   }, [conversationId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useLayoutEffect(() => {
     following.current = true;
@@ -76,10 +84,12 @@ export function ChatTimeline({ conversationId, showWelcome = false, messages, to
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollArea ref={rootRef} className="min-h-0 flex-1">
         <div data-slot="timeline-content" className={cn("mx-auto flex w-full min-w-0 max-w-[min(60rem,100dvw)] flex-col px-3 py-4 sm:px-4 md:px-6 md:py-5", showLatest && "pb-14 md:pb-14")}>
-          {showWelcome ? <WelcomeState /> : timeline.length > 0 ? <div className="flex min-w-0 flex-col gap-0.5">
-            {timeline.map((item, index) => item.kind === "run"
-              ? <div key={`run-${item.tools[0]?.id}`} data-slot="run-group-row" className="min-w-0 py-1.5"><RunGroup tools={item.tools} index={timeline.slice(0, index + 1).filter((entry) => entry.kind === "run").length} /></div>
-              : <MessageRow key={item.message.id} message={item.message} onBranch={() => { setBranchMessage(item.message); setBranchText(item.message.text); }} />)}
+          {showWelcome ? <WelcomeState /> : timeline.length > 0 ? <div className="flex min-w-0 flex-col">
+            {timeline.map((item) => item.kind === "run"
+              ? <div key={`run-${item.tools[0]?.id}`} data-slot="run-group-row" className="min-w-0 py-0.5"><RunGroup tools={item.tools} /></div>
+              : item.kind === "thinking"
+                ? <ThinkingNode key={item.thinking.id} thinking={item.thinking} />
+                : <MessageRow key={item.message.id} message={item.message} now={now} onBranch={() => { setBranchMessage(item.message); setBranchText(item.message.text); }} />)}
           </div> : null}
         </div>
       </ScrollArea>
@@ -131,7 +141,7 @@ function WelcomeState() {
   </Empty>;
 }
 
-function MessageRow({ message, onBranch }: { message: ChatMessage; onBranch(): void }) {
+function MessageRow({ message, now, onBranch }: { message: ChatMessage; now: number; onBranch(): void }) {
   const [copied, setCopied] = useState(false);
   const isUser = message.role === "user";
   const copy = async () => {
@@ -140,11 +150,11 @@ function MessageRow({ message, onBranch }: { message: ChatMessage; onBranch(): v
     setTimeout(() => setCopied(false), 1200);
   };
 
-  return <article className={cn("group/message flex py-2", isUser ? "justify-end" : "justify-start")}>
-    <div className="min-w-0 max-w-[92%] sm:max-w-[84%] md:max-w-[76%]">
+  return <article className={cn("group/message flex py-1", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("relative min-w-0 max-w-[92%] sm:max-w-[84%] md:max-w-[80%]", isUser && "w-fit")}>
       <div data-slot="message-bubble" className={cn(
-        "min-w-0 rounded-md border px-3.5 py-2.5 text-sm leading-6",
-        isUser ? "border-transparent bg-muted" : "border-transparent bg-transparent px-0",
+        "min-w-0 border text-sm leading-6",
+        isUser ? "rounded-2xl border-transparent bg-muted px-3 py-2" : "rounded-md border-transparent bg-transparent px-0 py-2",
       )}>
       {message.images.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{message.images.map((image, index) => <img key={index} alt="用户附件" src={`data:${image.mimeType};base64,${image.data}`} className="max-h-56 rounded-lg border object-contain" />)}</div>}
       {message.text && <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
@@ -167,12 +177,28 @@ function MessageRow({ message, onBranch }: { message: ChatMessage; onBranch(): v
       {message.streaming && <span className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground" aria-label="生成中"><LoaderCircleIcon className="size-3 animate-spin" />正在回复</span>}
       {message.error && <p className="mt-2 text-sm text-destructive [overflow-wrap:anywhere]">{message.error}</p>}
       </div>
-      {!message.streaming && message.text && <div data-slot="message-actions" className={cn("mt-0.5 flex gap-0.5 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100", isUser ? "justify-end" : "justify-start")}>
-        <Button variant="ghost" size="icon-xs" aria-label="复制消息" onClick={() => { copy().catch(() => undefined); }}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
-        {isUser && <Button variant="ghost" size="icon-xs" aria-label="编辑并创建分支" onClick={onBranch}><PencilIcon /></Button>}
-      </div>}
+      <div data-slot="message-meta" className={cn("flex min-h-5 items-center gap-1 text-xs text-muted-foreground md:absolute md:top-full md:z-10 md:w-max md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100", isUser ? "justify-end md:right-0" : "justify-start md:left-0")}>
+        <time dateTime={new Date(message.timestamp).toISOString()}>{relativeTime(message.timestamp, now)}</time>
+        {!message.streaming && message.text && <div data-slot="message-actions" className="flex gap-0.5">
+          <Button variant="ghost" size="icon-xs" aria-label="复制消息" onClick={() => { copy().catch(() => undefined); }}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
+          {isUser && <Button variant="ghost" size="icon-xs" aria-label="编辑并创建分支" onClick={onBranch}><PencilIcon /></Button>}
+        </div>}
+      </div>
     </div>
   </article>;
+}
+
+function ThinkingNode({ thinking }: { thinking: ThinkingBlock }) {
+  return <Collapsible data-slot="thinking-node" className="group/thinking min-w-0 max-w-[92%] sm:max-w-[84%] md:max-w-[80%]">
+    <CollapsibleTrigger className="flex min-h-8 w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-xs text-muted-foreground focus-visible:outline-none">
+      <BrainCircuitIcon className="size-3.5 shrink-0" />
+      <span className="font-medium">思考过程</span>
+      <ChevronRightIcon className="size-3.5 shrink-0 transition-transform group-data-[state=open]/thinking:rotate-90" />
+    </CollapsibleTrigger>
+    <CollapsibleContent>
+      <pre className="mx-2.5 mb-1 max-h-80 overflow-auto p-2.5 font-mono text-xs leading-5 whitespace-pre-wrap text-foreground">{thinking.text}</pre>
+    </CollapsibleContent>
+  </Collapsible>;
 }
 
 function CodeBlock({ children }: { children: ReactNode }) {
@@ -204,18 +230,33 @@ function nodeText(node: ReactNode): string {
   return Children.toArray(node).map(nodeText).join("");
 }
 
+function relativeTime(timestamp: number, now: number): string {
+  const elapsed = now - timestamp;
+  if (!Number.isFinite(elapsed) || elapsed < 60_000) return "刚刚";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)} 分钟前`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)} 小时前`;
+  if (elapsed < 604_800_000) return `${Math.floor(elapsed / 86_400_000)} 天前`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
 type TimelineEntry =
   | { kind: "message"; timestamp: number; message: ChatMessage }
-  | { kind: "run"; timestamp: number; tools: ToolRun[] };
+  | { kind: "run"; timestamp: number; tools: ToolRun[] }
+  | { kind: "thinking"; timestamp: number; thinking: ThinkingBlock };
 
-export function groupTimeline(messages: ChatMessage[], tools: ToolRun[]): TimelineEntry[] {
+export function groupTimeline(messages: ChatMessage[], tools: ToolRun[], thinking: ThinkingBlock[] = []): TimelineEntry[] {
   const ordered = [
-    ...messages.map((message) => ({ kind: "message" as const, timestamp: message.timestamp, message })),
-    ...tools.map((tool) => ({ kind: "tool" as const, timestamp: tool.startedAt, tool })),
-  ].sort((a, b) => a.timestamp - b.timestamp);
+    ...thinking.map((item) => ({ kind: "thinking" as const, timestamp: item.timestamp, thinking: item, order: 0 })),
+    ...tools.map((tool) => ({ kind: "tool" as const, timestamp: tool.startedAt, tool, order: 1 })),
+    ...messages.map((message) => ({ kind: "message" as const, timestamp: message.timestamp, message, order: 2 })),
+  ].sort((a, b) => a.timestamp - b.timestamp || a.order - b.order);
 
   return ordered.reduce<TimelineEntry[]>((entries, item) => {
     if (item.kind === "message") {
+      entries.push(item);
+      return entries;
+    }
+    if (item.kind === "thinking") {
       entries.push(item);
       return entries;
     }

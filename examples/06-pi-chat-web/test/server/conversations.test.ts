@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { File as NodeFile } from "node:buffer";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +35,39 @@ describe("ConversationService", () => {
     await conversations.shutdown();
   });
 
+  it("recovers a session when its persisted session path is stale", async () => {
+    const conversations = await service();
+    const created = await conversations.createConversation();
+    const id = created.conversation.id;
+    const active = activeConversation(conversations, id);
+    active.runtime.session.sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "Keep this history" }],
+      timestamp: Date.now(),
+    } as never);
+    active.runtime.session.sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "History restored" }],
+      api: "openai-responses",
+      provider: "openai",
+      model: "test-model",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now() + 1,
+    } as never);
+
+    const recordPath = join(conversations.paths.records, `${id}.json`);
+    const record = JSON.parse(await readFile(recordPath, "utf8")) as { sessionFile: string };
+    record.sessionFile = join(conversations.paths.sessions, `missing_${id}.jsonl`);
+    await writeFile(recordPath, `${JSON.stringify(record)}\n`, "utf8");
+    await conversations.release(id);
+
+    const restored = await conversations.snapshot(id);
+    expect(restored.messages.map((message) => message.text)).toEqual(["Keep this history", "History restored"]);
+    expect(JSON.parse(await readFile(recordPath, "utf8")).sessionFile).not.toContain(`missing_${id}.jsonl`);
+    await conversations.shutdown();
+  });
+
   it("evicts idle runtimes without deleting the conversation", async () => {
     const conversations = await service(10);
     const created = await conversations.createConversation();
@@ -54,6 +87,42 @@ describe("ConversationService", () => {
     const restored = await conversations.snapshot(id);
     expect(restored.conversation.title).toBe("Updated metadata");
     expect(restored.settings).toMatchObject({ autoCompaction: false, autoRetry: false });
+    await conversations.shutdown();
+  });
+
+  it("generates and broadcasts a title from the first user request", async () => {
+    const conversations = await service();
+    const created = await conversations.createConversation();
+    const id = created.conversation.id;
+    const active = activeConversation(conversations, id);
+    const prompt = vi.spyOn(active.runtime.session, "prompt").mockResolvedValue(undefined);
+
+    await conversations.send(id, "  帮我\n优化一下工具调用界面  ", [], "followUp");
+
+    expect(prompt).toHaveBeenCalledWith("帮我\n优化一下工具调用界面", expect.any(Object));
+    expect((await conversations.snapshot(id)).conversation.title).toBe("帮我 优化一下工具调用界面");
+    expect(active.runtime.session.sessionManager.getSessionName()).toBe("帮我 优化一下工具调用界面");
+    expect(active.events.activity().at(-1)).toMatchObject({ type: "conversation.renamed", summary: "conversation.renamed" });
+    await conversations.shutdown();
+  });
+
+  it("does not duplicate transcript-backed activity after a snapshot refresh", async () => {
+    const conversations = await service();
+    const created = await conversations.createConversation();
+    const active = activeConversation(conversations, created.conversation.id);
+    const timestamp = Date.now();
+    const entryId = active.runtime.session.sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "Keep one activity row" }],
+      timestamp,
+    } as never);
+    active.events.publish("message.added", {
+      message: { id: entryId, role: "user", text: "Keep one activity row", images: [], timestamp },
+    });
+
+    const snapshot = await conversations.snapshot(created.conversation.id);
+    const activities = snapshot.activity.filter((item) => item.type === "message.added" && item.sourceId === entryId);
+    expect(activities).toEqual([expect.objectContaining({ summary: "用户消息" })]);
     await conversations.shutdown();
   });
 
@@ -188,11 +257,12 @@ describe("ConversationService", () => {
 });
 
 function activeConversation(conversations: ConversationService, id: string) {
-  const service = conversations as unknown as { active: Map<string, { status: "ready" | "running"; runtime: { session: {
+  const service = conversations as unknown as { active: Map<string, { status: "ready" | "running"; events: { activity(): Array<{ type: string; summary: string }>; publish(type: string, payload: unknown): void }; runtime: { session: {
+    prompt(text: string, options: unknown): Promise<void>;
     steer(text: string, images: unknown[]): Promise<void>;
     followUp(text: string, images: unknown[]): Promise<void>;
     setSessionName(name: string): void;
-    sessionManager: { appendMessage(message: never): string };
+    sessionManager: { appendMessage(message: never): string; getSessionName(): string | undefined };
   } } }> };
   const active = service.active.get(id);
   if (!active) throw new Error("Expected an active conversation");
