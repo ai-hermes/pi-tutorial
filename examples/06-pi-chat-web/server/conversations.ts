@@ -417,7 +417,7 @@ export class ConversationService {
       headers: {
         "Cache-Control": "no-cache, no-transform",
         "Content-Type": "text/event-stream",
-        Connection: "keep-alive",
+        "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
       },
     });

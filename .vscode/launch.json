@@ -7,7 +7,7 @@
       "request": "launch",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["server:dev"],
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/examples/06-pi-chat-web",
       "autoAttachChildProcesses": true,
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
@@ -18,7 +18,7 @@
       "request": "launch",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev"],
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/examples/06-pi-chat-web",
       "autoAttachChildProcesses": true,
       "console": "internalConsole",
       "serverReadyAction": {
@@ -33,7 +33,7 @@
       "type": "pwa-chrome",
       "request": "launch",
       "url": "http://127.0.0.1:4327",
-      "webRoot": "${workspaceFolder}/src",
+      "webRoot": "${workspaceFolder}/examples/06-pi-chat-web/src",
       "sourceMaps": true
     },
     {
@@ -42,7 +42,7 @@
       "request": "launch",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["exec", "vitest", "run", "${file}"],
-      "cwd": "${workspaceFolder}",
+      "cwd": "${workspaceFolder}/examples/06-pi-chat-web",
       "autoAttachChildProcesses": true,
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
