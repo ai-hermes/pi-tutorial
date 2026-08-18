@@ -57,11 +57,11 @@ export function Composer({
     setFiles((current) => [...current, ...[...nextFiles]].slice(0, 5));
   };
 
-  return <div data-slot="composer-shell" className="shrink-0 border-t bg-card/95 px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:px-4 md:pb-3">
+  return <div data-slot="composer-shell" className="shrink-0 border-t bg-background px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-2 md:px-4 md:pb-3">
     <div className="mx-auto w-full max-w-[60rem]">
-      {queueing && <div className="mb-1.5 flex min-h-7 items-center justify-between gap-3 rounded-md border border-emerald-500/15 bg-emerald-500/[0.055] px-2.5 py-1 text-xs text-emerald-700 dark:text-emerald-300"><span className="flex items-center gap-2"><CircleIcon className="size-2.5 fill-current" />Pi 正在运行，可插入方向或排队下一步</span>{queued > 0 && <span className="font-mono">Queue {queued}</span>}</div>}
+      {queueing && <div className="mb-1.5 flex min-h-7 items-center justify-between gap-3 border-l-2 border-foreground bg-surface-subtle px-2.5 py-1 text-xs text-body"><span className="flex items-center gap-2"><CircleIcon className="size-2.5 fill-success text-success" />Pi 正在运行，可插入方向或排队下一步</span>{queued > 0 && <span className="font-mono">Queue {queued}</span>}</div>}
       <Field>
-      <InputGroup data-testid="composer-input" className="composer-input h-auto rounded-xl border bg-background shadow-[0_12px_30px_-24px_rgba(18,28,21,0.6)] has-disabled:bg-background has-disabled:opacity-100">
+      <InputGroup data-testid="composer-input" className="composer-input h-auto rounded-lg border bg-background has-disabled:bg-background has-disabled:opacity-100">
         {files.length > 0 && <div data-testid="attachment-tray" className="flex w-full flex-wrap gap-2 px-3 pt-3">
           {files.map((file, index) => <AttachmentPreview
             key={`${file.name}-${file.lastModified}-${index}`}
@@ -184,7 +184,7 @@ function ModelThinkingMenu({
                 onModelChange(value.slice(0, separator), value.slice(separator + 1)).catch(() => undefined);
               }}>
                 {providers.map((provider) => <DropdownMenuGroup key={provider}>
-                  {providers.length > 1 && <DropdownMenuLabel className="px-2 pb-0.5 pt-1.5 font-mono text-[10px] uppercase tracking-[0.08em] first:pt-1">{provider}</DropdownMenuLabel>}
+                  {providers.length > 1 && <DropdownMenuLabel className="px-2 pb-0.5 pt-1.5 font-mono text-[var(--type-meta)] first:pt-1">{provider}</DropdownMenuLabel>}
                   {sortedModels.filter((option) => option.provider === provider).map((option) => <DropdownMenuRadioItem
                     key={`${option.provider}/${option.id}`}
                     value={`${option.provider}/${option.id}`}
@@ -248,19 +248,19 @@ function AttachmentPreview({ file, imageInput, onRemove }: { file: File; imageIn
     return () => URL.revokeObjectURL(next);
   }, [file, isImage]);
 
-  if (isImage) return <div data-attachment-preview="image" className="group relative size-24 overflow-hidden rounded-lg border bg-muted shadow-sm sm:size-28" title={imageInput ? file.name : `${file.name}（作为文件分析）`}>
+  if (isImage) return <div data-attachment-preview="image" className="group relative size-24 overflow-hidden rounded-md border bg-muted sm:size-28" title={imageInput ? file.name : `${file.name}（作为文件分析）`}>
     {url && <img src={url} alt={file.name} className="size-full object-contain" />}
-    {!imageInput && <span className="absolute inset-x-1.5 bottom-1.5 truncate rounded bg-background/90 px-1.5 py-1 text-[10px] text-muted-foreground backdrop-blur">作为文件分析</span>}
-    <Button variant="secondary" size="icon-sm" className="absolute right-1.5 top-1.5 size-8 rounded-full border-0 bg-foreground text-background opacity-95 shadow-md hover:bg-foreground/80 hover:text-background" aria-label={`移除 ${file.name}`} onClick={onRemove}><XIcon className="size-4" /></Button>
+    {!imageInput && <span className="absolute inset-x-1.5 bottom-1.5 truncate rounded-sm bg-background px-1.5 py-1 text-[var(--type-meta)] text-muted-foreground">作为文件分析</span>}
+    <Button variant="secondary" size="icon-sm" className="absolute right-1.5 top-1.5 size-8 rounded-md border bg-background text-foreground hover:bg-muted" aria-label={`移除 ${file.name}`} onClick={onRemove}><XIcon className="size-4" /></Button>
   </div>;
 
-  return <div data-attachment-preview="file" className="relative flex h-16 w-full max-w-56 items-center gap-2.5 rounded-lg border bg-muted/35 p-2.5 pr-9 shadow-sm sm:w-56">
-    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background"><FileIcon className="size-4 text-muted-foreground" /></span>
+  return <div data-attachment-preview="file" className="relative flex h-16 w-full max-w-56 items-center gap-2.5 rounded-md border bg-surface-subtle p-2.5 pr-9 sm:w-56">
+    <FileIcon className="size-4 shrink-0 text-muted-foreground" />
     <span className="min-w-0">
       <span className="block truncate text-sm font-medium" title={file.name}>{file.name}</span>
-      <span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{fileLabel(file)}</span>
+      <span className="mt-0.5 block font-mono text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">{fileLabel(file)}</span>
     </span>
-    <Button variant="ghost" size="icon" className="absolute right-1.5 top-1.5 size-7 rounded-full" aria-label={`移除 ${file.name}`} onClick={onRemove}><XIcon className="size-4" /></Button>
+    <Button variant="ghost" size="icon" className="absolute right-1.5 top-1.5 size-7 rounded-md" aria-label={`移除 ${file.name}`} onClick={onRemove}><XIcon className="size-4" /></Button>
   </div>;
 }
 

@@ -23,10 +23,7 @@ export function ToolCallCard({ tool }: { tool: ToolRun }) {
 
   return <Collapsible data-slot="tool-call-row" className="group/tool min-w-0 bg-card">
     <CollapsibleTrigger className="flex min-h-10 w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3.5">
-      <span className={cn(
-        "relative flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground",
-        tool.status === "error" ? "bg-destructive/5 text-destructive" : "text-link",
-      )}><ToolIcon className="size-3.5" /></span>
+      <ToolIcon className={cn("size-3.5 shrink-0 text-muted-foreground", tool.status === "error" && "text-destructive")} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
           <span className="shrink-0 font-mono text-xs font-medium">{tool.name}</span>
@@ -34,10 +31,7 @@ export function ToolCallCard({ tool }: { tool: ToolRun }) {
         </span>
       </span>
       {duration && <span className="hidden font-mono text-xs tabular-nums text-muted-foreground sm:inline">{duration}</span>}
-      <Badge variant="ghost" className={cn(
-        "shrink-0 font-mono text-[11px] font-normal",
-        tool.status === "error" ? "text-destructive" : "text-link",
-      )}>
+      <Badge variant="ghost" className={cn("shrink-0 font-normal", tool.status === "error" ? "text-destructive" : tool.status === "success" ? "text-success" : "text-foreground")}>
         <StatusIcon data-icon="inline-start" className={cn(tool.status === "running" && "animate-spin")} />
         {tool.status === "running" ? "运行中" : tool.status === "error" ? "失败" : "完成"}
       </Badge>
@@ -45,14 +39,14 @@ export function ToolCallCard({ tool }: { tool: ToolRun }) {
     </CollapsibleTrigger>
     <CollapsibleContent>
       <Separator />
-      <div className="flex flex-col gap-2 bg-surface-subtle/60 px-3 py-2.5 text-xs sm:px-3.5 sm:pl-[3.25rem]">
+      <div className="flex flex-col gap-2 bg-surface-subtle px-3 py-2.5 text-xs sm:px-3.5 sm:pl-9">
         {tool.name === "bash" && <BashSummary tool={tool} exitCode={exitCode} />}
         {(details?.patch || details?.diff) && output
           ? <OutputSection title="变更" output={output} diff />
           : output && <OutputSection title={tool.status === "error" ? "错误输出" : "输出"} output={output} />}
         <details className="group/args">
           <summary className="cursor-pointer select-none font-mono text-xs text-muted-foreground hover:text-foreground">查看完整参数</summary>
-          <pre className="mt-2 max-h-48 overflow-auto rounded-lg border bg-surface-subtle p-2.5 font-mono text-xs leading-5 whitespace-pre-wrap">{JSON.stringify(tool.args, null, 2)}</pre>
+          <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-background p-2.5 font-mono text-xs leading-5 whitespace-pre-wrap">{JSON.stringify(tool.args, null, 2)}</pre>
         </details>
         {details?.truncated && <p className="text-muted-foreground">输出已由 Pi 截断。</p>}
       </div>
@@ -63,11 +57,11 @@ export function ToolCallCard({ tool }: { tool: ToolRun }) {
 function BashSummary({ tool, exitCode }: { tool: ToolRun; exitCode?: number }) {
   const command = stringArg(tool.args, "command") || stringArg(tool.args, "cmd");
   if (!command && exitCode === undefined) return null;
-  return <section className="overflow-hidden rounded-lg border bg-card">
+  return <section className="overflow-hidden rounded-md border bg-card">
     <div className="flex min-h-9 items-center gap-2 px-2.5 py-1.5">
       <TerminalSquareIcon className="size-3.5 text-muted-foreground" />
       <code className="min-w-0 flex-1 truncate font-mono text-xs">{command ? `$ ${command}` : "Shell command"}</code>
-      {exitCode !== undefined && <Badge variant={exitCode === 0 ? "outline" : "destructive"} className={cn("font-mono font-normal", exitCode === 0 && "border-link/25 text-link")}>exit {exitCode}</Badge>}
+      {exitCode !== undefined && <Badge variant={exitCode === 0 ? "outline" : "destructive"} className={cn("font-mono font-normal", exitCode === 0 && "text-success")}>exit {exitCode}</Badge>}
     </div>
   </section>;
 }
@@ -81,7 +75,7 @@ function OutputSection({ title, output, diff = false }: { title: string; output:
   };
   const stats = diff ? diffStats(output) : undefined;
 
-  return <section className="overflow-hidden rounded-lg border bg-card">
+  return <section className="overflow-hidden rounded-md border bg-card">
     <div className="flex h-8 items-center gap-2 px-2.5">
       <span className="font-mono text-xs font-medium">{title}</span>
       {stats && <span className="font-mono text-xs text-muted-foreground">+{stats.added} -{stats.removed}</span>}
@@ -95,7 +89,7 @@ function OutputSection({ title, output, diff = false }: { title: string; output:
 function DiffView({ value }: { value: string }) {
   return <pre className="max-h-96 overflow-auto py-2 font-mono leading-5">{value.split("\n").map((line, index) => <span key={`${index}-${line}`} className={cn(
     "block min-w-max px-3",
-    line.startsWith("+") && !line.startsWith("+++") && "bg-link-soft/45 text-link",
+    line.startsWith("+") && !line.startsWith("+++") && "bg-success/8 text-success",
     line.startsWith("-") && !line.startsWith("---") && "bg-destructive/8 text-destructive",
     line.startsWith("@@") && "text-muted-foreground",
   )}>{line || " "}</span>)}</pre>;

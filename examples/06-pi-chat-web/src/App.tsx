@@ -1,8 +1,6 @@
 import { startTransition, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { CircleIcon, MoonIcon, PanelRightIcon, SunIcon } from "lucide-react";
-import { useTheme } from "next-themes";
+import { PanelRightIcon, RadioTowerIcon } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,15 +24,17 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [conversationEntered, setConversationEntered] = useState(false);
   const initialized = useRef(false);
   const pendingEvents = useRef<StreamEvent[]>([]);
   const eventFrame = useRef<number | undefined>(undefined);
-  const { resolvedTheme, setTheme } = useTheme();
-
   const refreshList = async () => setConversations(await listConversations());
   const openConversation = async (id: string) => {
     setLoading(true);
-    try { dispatch({ type: "snapshot", snapshot: await getConversation(id) }); }
+    try {
+      dispatch({ type: "snapshot", snapshot: await getConversation(id) });
+      setConversationEntered(true);
+    }
     catch (error) { report(error); }
     finally { setLoading(false); }
   };
@@ -43,6 +43,7 @@ export default function App() {
     try {
       const next = await createConversation();
       dispatch({ type: "snapshot", snapshot: next });
+      setConversationEntered(true);
       await refreshList();
     } catch (error) { report(error); }
     finally { setLoading(false); }
@@ -52,6 +53,7 @@ export default function App() {
     try {
       const next = await importConversation(file);
       dispatch({ type: "snapshot", snapshot: next });
+      setConversationEntered(true);
       await refreshList();
       toast.success("会话已导入");
     } catch (error) { report(error); }
@@ -102,7 +104,7 @@ export default function App() {
   return <>
     <ConversationSidebar
       conversations={conversations}
-      selectedId={snapshot?.conversation.id}
+      selectedId={conversationEntered ? snapshot?.conversation.id : undefined}
       loading={loading}
       onSelect={(id) => { openConversation(id).catch(report); }}
       onNew={newConversation}
@@ -119,21 +121,23 @@ export default function App() {
       }, "对话已删除")}
     />
     <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background">
-      <header data-slot="app-header" className="flex h-14 shrink-0 items-center gap-2 border-b bg-card/90 px-3 backdrop-blur md:px-4">
+      <header data-slot="app-header" className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 md:px-4">
         <SidebarTrigger className="size-8 border bg-background" />
         <div className="min-w-0">
-          <p className="truncate font-mono text-[10px] leading-4 text-muted-foreground">workspace / {snapshot?.conversation.parentId ? "shared branch" : "local"}</p>
-          <h1 className="truncate text-sm font-semibold leading-4 tracking-[-0.28px]">{snapshot?.conversation.title ?? "Pi Chat"}</h1>
+          <p className="truncate font-mono text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">workspace / {conversationEntered && snapshot?.conversation.parentId ? "shared branch" : "local"}</p>
+          <h1 className="truncate text-[var(--type-section)] leading-4">{conversationEntered ? snapshot?.conversation.title : "新对话"}</h1>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <Badge variant="outline" className="h-7 shrink-0 gap-1.5 bg-background px-2 font-mono text-[10px] font-normal"><CircleIcon className={connected ? "fill-emerald-500 text-emerald-500" : "fill-muted-foreground text-muted-foreground"} /><span className="hidden sm:inline">{connected ? "Live" : "Reconnecting"}</span></Badge>
+          <span className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2 text-xs text-muted-foreground sm:inline-flex" title={connected ? "实时连接正常" : "正在重新连接"}>
+            <RadioTowerIcon className={connected ? "size-3.5 text-success" : "size-3.5 text-muted-foreground"} />
+            {connected ? "Live" : "Reconnecting"}
+          </span>
           <Tooltip><TooltipTrigger asChild><Button variant={inspectorOpen ? "secondary" : "outline"} size="xs" className="h-7 bg-background px-2" aria-label="打开 Harness 检查器" disabled={!snapshot} onClick={() => setInspectorOpen(true)}><PanelRightIcon /><span className="hidden sm:inline">Harness</span></Button></TooltipTrigger><TooltipContent>运行状态、上下文与设置</TooltipContent></Tooltip>
-          <ThemeToggle resolvedTheme={resolvedTheme} onThemeChange={setTheme} />
         </div>
       </header>
 
       {loading || !snapshot ? <LoadingState /> : <>
-        <ChatTimeline conversationId={snapshot.conversation.id} messages={snapshot.messages} tools={snapshot.tools} onBranch={async (entryId, text) => guarded(async () => { const next = await branchConversation(snapshot.conversation.id, entryId, text); dispatch({ type: "snapshot", snapshot: next }); await refreshList(); }, "分支已创建")} />
+        <ChatTimeline showWelcome={!conversationEntered} conversationId={snapshot.conversation.id} messages={snapshot.messages} tools={snapshot.tools} onBranch={async (entryId, text) => guarded(async () => { const next = await branchConversation(snapshot.conversation.id, entryId, text); dispatch({ type: "snapshot", snapshot: next }); setConversationEntered(true); await refreshList(); }, "分支已创建")} />
         <Composer
           status={snapshot.status}
           imageInput={selectedModel?.imageInput ?? false}
@@ -143,6 +147,7 @@ export default function App() {
           thinkingLevels={snapshot.availableThinkingLevels}
           queued={snapshot.queue.steering.length + snapshot.queue.followUp.length}
           onSend={async (text, images, behavior: QueueBehavior) => {
+            setConversationEntered(true);
             const optimistic: ChatMessage = {
               id: `optimistic_${crypto.randomUUID()}`,
               role: "user",
@@ -175,25 +180,6 @@ export default function App() {
       </>}
     </SidebarInset>
   </>;
-}
-
-export function ThemeToggle({ resolvedTheme, onThemeChange }: { resolvedTheme?: string; onThemeChange(theme: "light" | "dark"): void }) {
-  const dark = resolvedTheme === "dark";
-  const nextTheme = dark ? "light" : "dark";
-  return <Tooltip>
-    <TooltipTrigger asChild>
-      <Button
-        variant="outline"
-        size="icon-sm"
-        className="size-7 bg-background"
-        aria-label={dark ? "切换到浅色模式" : "切换到深色模式"}
-        onClick={() => onThemeChange(nextTheme)}
-      >
-        {dark ? <MoonIcon /> : <SunIcon />}
-      </Button>
-    </TooltipTrigger>
-    <TooltipContent>{dark ? "切换到浅色模式" : "切换到深色模式"}</TooltipContent>
-  </Tooltip>;
 }
 
 function report(error: unknown): void {

@@ -39,26 +39,26 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, onSettin
   return <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full gap-0 bg-background p-0 data-[side=right]:w-full sm:data-[side=right]:w-3/4 sm:max-w-md">
-        <SheetHeader className="gap-2.5 border-b bg-card px-3.5 py-3 sm:px-4">
+        <SheetHeader className="gap-2.5 border-b bg-background px-3.5 py-3 sm:px-4">
           <div className="flex items-start gap-2.5">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-link-soft text-link"><ActivityIcon className="size-4.5" /></span>
+            <ActivityIcon className="mt-0.5 size-4.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <SheetTitle className="text-sm tracking-[-0.28px]">Harness 检查器</SheetTitle>
+              <SheetTitle className="text-sm">Harness 检查器</SheetTitle>
               <SheetDescription className="mt-0.5 text-xs leading-4">查看 Pi session、工具执行和上下文状态。</SheetDescription>
             </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 rounded-md bg-muted/60 px-2.5 py-1.5 font-mono text-[10px] text-muted-foreground">
-            <Badge variant="outline" className="shrink-0 gap-1.5 bg-background font-mono text-[10px] font-normal">
-              <CircleIcon className={snapshot.status === "running" ? "fill-link text-link" : "fill-muted-foreground text-muted-foreground"} />
+          <div className="flex min-w-0 items-center gap-2 border-t pt-2 text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">
+            <Badge variant="outline" className="shrink-0 gap-1.5 bg-background font-normal">
+              <CircleIcon className={snapshot.status === "running" ? "fill-success text-success" : "fill-muted-foreground text-muted-foreground"} />
               {statusLabel(snapshot.status)}
             </Badge>
-            <span className="min-w-0 truncate">{snapshot.model.provider}/{snapshot.model.id}</span>
-            <span className="ml-auto shrink-0">thinking {snapshot.thinkingLevel}</span>
+            <span className="min-w-0 truncate font-mono">{snapshot.model.provider}/{snapshot.model.id}</span>
+            <span className="ml-auto shrink-0">Thinking <span className="font-mono">{snapshot.thinkingLevel}</span></span>
           </div>
         </SheetHeader>
         <Tabs defaultValue="activity" className="min-h-0 flex-1 flex-col gap-0 overflow-hidden">
-          <div className="shrink-0 border-b bg-card px-3.5 py-2.5 sm:px-4">
-            <TabsList className="grid h-10 w-full grid-cols-3 rounded-md bg-muted p-1">
+          <div className="shrink-0 border-b bg-background px-3.5 sm:px-4">
+            <TabsList variant="line" className="grid h-10 w-full grid-cols-3">
               <HarnessTab value="activity" icon={ActivityIcon}>活动</HarnessTab>
               <HarnessTab value="context" icon={GaugeIcon}>上下文</HarnessTab>
               <HarnessTab value="settings" icon={Settings2Icon}>设置</HarnessTab>
@@ -76,21 +76,21 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, onSettin
                 <SectionHeading title="运行时间线" value={snapshot.activity.length ? `${snapshot.activity.length} 条` : undefined} />
                 {snapshot.activity.length === 0
                   ? <Empty className="min-h-40 rounded-lg border border-dashed bg-card py-6"><EmptyHeader><EmptyMedia variant="icon"><ActivityIcon /></EmptyMedia><EmptyTitle>尚无运行事件</EmptyTitle><EmptyDescription>模型响应、工具调用和设置变化会实时出现在这里。</EmptyDescription></EmptyHeader></Empty>
-                  : <div data-slot="activity-list" className="overflow-hidden rounded-xl border bg-card">{snapshot.activity.map((item, index) => <ActivityRow key={`${item.id}-${item.type}`} item={item} active={snapshot.status === "running" && index === 0} last={index === snapshot.activity.length - 1} />)}</div>}
+                  : <div data-slot="activity-list" className="overflow-hidden rounded-md border bg-card">{snapshot.activity.map((item, index) => <ActivityRow key={`${item.id}-${item.type}`} item={item} active={snapshot.status === "running" && index === 0} last={index === snapshot.activity.length - 1} />)}</div>}
               </section>
             </TabsContent>
             <TabsContent value="context" className="mt-0 flex flex-col gap-4 p-3.5 sm:p-4">
-              <section className="flex flex-col gap-2.5 rounded-lg border bg-card p-3.5">
+              <section className="flex flex-col gap-2.5 border-b pb-4">
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="text-sm font-medium">上下文用量</p><p className="mt-1 text-xs text-muted-foreground">当前会话占模型窗口的比例</p></div>
-                  <span className="font-mono text-lg font-semibold tracking-[-0.04em] tabular-nums">{usage ? `${usage.percent.toFixed(1)}%` : "—"}</span>
+                  <span className="font-mono text-lg font-semibold tabular-nums">{usage ? `${usage.percent.toFixed(1)}%` : "—"}</span>
                 </div>
                 <Progress value={usage?.percent ?? 0} className="h-2" />
-                <p className="font-mono text-[10px] text-muted-foreground">{usage ? `${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens` : "完成一次模型调用后显示。"}</p>
+                <p className="font-mono text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">{usage ? `${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens` : "完成一次模型调用后显示。"}</p>
               </section>
               <section className="text-sm">
                 <SectionHeading title="会话统计" />
-                <div className="mt-2.5 overflow-hidden rounded-lg border bg-card">
+                <div className="mt-2.5 overflow-hidden rounded-md border bg-card">
                   <Metric icon={SparklesIcon} label="输入 tokens" value={snapshot.stats.tokens.input.toLocaleString()} />
                   <Metric icon={BotIcon} label="输出 tokens" value={snapshot.stats.tokens.output.toLocaleString()} />
                   <Metric icon={TimerResetIcon} label="缓存读取" value={snapshot.stats.tokens.cacheRead.toLocaleString()} />
@@ -99,10 +99,10 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, onSettin
                 </div>
               </section>
               <div className="grid grid-cols-2 gap-2"><Button className="col-span-2" size="sm" onClick={() => setCompactOpen(true)}><ArchiveIcon data-icon="inline-start" />压缩上下文</Button><Button variant="outline" size="sm" asChild><a href={`${base}/export?format=jsonl`}><DownloadIcon data-icon="inline-start" />导出 JSONL</a></Button><Button variant="outline" size="sm" asChild><a href={`${base}/export?format=html`}><DownloadIcon data-icon="inline-start" />导出 HTML</a></Button></div>
-              <section className="rounded-lg border bg-card p-3.5">
-                <p className="flex items-center gap-2 text-xs font-medium"><FolderIcon className="size-4 text-link" />Workspace</p>
-                <code className="mt-2 block break-all rounded-md bg-muted px-2.5 py-2 text-[11px] leading-4 text-foreground/80">{snapshot.conversation.workspace}</code>
-                <p className="mt-2 font-mono text-[10px] text-muted-foreground">Session {snapshot.stats.sessionId}</p>
+              <section className="border-t pt-3.5">
+                <p className="flex items-center gap-2 text-xs font-medium"><FolderIcon className="size-4 text-muted-foreground" />Workspace</p>
+                <code className="mt-2 block break-all rounded-md bg-muted px-2.5 py-2 text-xs leading-4 text-foreground/80">{snapshot.conversation.workspace}</code>
+                <p className="mt-2 text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">Session <span className="font-mono">{snapshot.stats.sessionId}</span></p>
               </section>
               {snapshot.diagnostics.length > 0 && <Alert><AlertTitle>Runtime diagnostics</AlertTitle><AlertDescription className="whitespace-pre-wrap">{snapshot.diagnostics.join("\n")}</AlertDescription></Alert>}
             </TabsContent>
@@ -136,32 +136,32 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, onSettin
 }
 
 function HarnessTab({ value, icon: Icon, children }: { value: string; icon: typeof ActivityIcon; children: string }) {
-  return <TabsTrigger value={value} className="h-full gap-2 rounded-md text-xs font-medium data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm dark:data-[state=active]:text-primary-foreground"><Icon />{children}</TabsTrigger>;
+  return <TabsTrigger value={value} className="h-full gap-2 rounded-none text-xs font-medium"><Icon />{children}</TabsTrigger>;
 }
 
 function ActivityRow({ item, active, last }: { item: ActivityItem; active: boolean; last: boolean }) {
   return <div data-slot="activity-row" className={cn("flex items-center gap-2.5 px-3 py-2.5", !last && "border-b")}>
-    <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-md", active ? "bg-link-soft text-link" : "bg-muted text-muted-foreground")}><CircleIcon className={cn("size-2.5", active && "fill-current")} /></span>
-    <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{activityLabel(item)}</p><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{item.summary}</p></div>
-    <time className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">{new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+    <CircleIcon className={cn("size-2.5 shrink-0 text-muted-foreground", active && "fill-success text-success")} />
+    <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium">{activityLabel(item)}</p><p className="mt-0.5 truncate text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">{item.summary}</p></div>
+    <time className="shrink-0 font-mono text-[var(--type-meta)] leading-[var(--leading-meta)] tabular-nums text-muted-foreground">{new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
   </div>;
 }
 
 function QueueList({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null;
-  return <div className="rounded-lg bg-surface-subtle px-3 py-2"><p className="font-mono text-[10px] font-medium text-muted-foreground">{label}</p>{items.map((item, index) => <p key={`${label}-${index}`} className="mt-1 truncate text-xs">{item}</p>)}</div>;
+  return <div className="border-l-2 bg-surface-subtle px-3 py-2"><p className="text-[var(--type-meta)] font-medium leading-[var(--leading-meta)] text-muted-foreground">{label}</p>{items.map((item, index) => <p key={`${label}-${index}`} className="mt-1 truncate text-xs">{item}</p>)}</div>;
 }
 
 function Metric({ icon: Icon, label, value, last = false }: { icon: typeof ActivityIcon; label: string; value: string; last?: boolean }) {
-  return <div className={cn("flex items-center gap-2.5 px-3 py-2", !last && "border-b")}><span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"><Icon className="size-3.5" /></span><span className="text-muted-foreground">{label}</span><span className="ml-auto font-mono text-xs font-medium tabular-nums">{value}</span></div>;
+  return <div className={cn("flex items-center gap-2.5 px-3 py-2", !last && "border-b")}><Icon className="size-3.5 shrink-0 text-muted-foreground" /><span className="text-muted-foreground">{label}</span><span className="ml-auto font-mono text-xs font-medium tabular-nums">{value}</span></div>;
 }
 
 function SectionHeading({ title, value }: { title: string; value?: string }) {
-  return <div className="flex items-center justify-between gap-3"><h3 className="text-xs font-medium">{title}</h3>{value && <span className="font-mono text-[10px] text-muted-foreground">{value}</span>}</div>;
+  return <div className="flex items-center justify-between gap-3"><h3 className="text-xs font-medium">{title}</h3>{value && <span className="font-mono text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">{value}</span>}</div>;
 }
 
 function SettingSection({ icon: Icon, title, description, children }: { icon: typeof ActivityIcon; title: string; description: string; children: React.ReactNode }) {
-  return <section className="overflow-hidden rounded-lg border bg-card"><div className="flex items-center gap-2.5 border-b bg-muted/35 px-3.5 py-2.5"><span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-link-soft text-link"><Icon className="size-3.5" /></span><div><h3 className="text-sm font-medium">{title}</h3><p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p></div></div><div className="px-3.5">{children}</div></section>;
+  return <section className="overflow-hidden rounded-md border bg-card"><div className="flex items-center gap-2.5 border-b bg-surface-subtle px-3.5 py-2.5"><Icon className="size-3.5 shrink-0 text-muted-foreground" /><div><h3 className="text-sm font-medium">{title}</h3><p className="mt-0.5 text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">{description}</p></div></div><div className="px-3.5">{children}</div></section>;
 }
 
 function statusLabel(status: ConversationSnapshot["status"]): string {

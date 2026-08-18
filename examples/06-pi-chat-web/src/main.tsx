@@ -11,10 +11,10 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <TooltipProvider>
-        <SidebarProvider style={{ "--sidebar-width": "14rem" } as React.CSSProperties}>
+        <SidebarProvider>
           <App />
         </SidebarProvider>
-        <Toaster richColors position="bottom-right" />
+        <Toaster position="bottom-right" />
       </TooltipProvider>
     </ThemeProvider>
   </StrictMode>,

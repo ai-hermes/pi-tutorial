@@ -1,11 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConversationSidebar } from "@/components/ConversationSidebar";
 
 const conversation = { id: "c1", title: "History item", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", messageCount: 0, workspace: "/tmp/test", status: "cold" as const };
 const desktopWidth = window.innerWidth;
+
+beforeEach(() => window.localStorage.clear());
 
 afterEach(() => {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: desktopWidth });
@@ -15,6 +17,50 @@ describe("ConversationSidebar", () => {
   it("uses compact history rows", () => {
     render(<TooltipProvider><SidebarProvider><ConversationSidebar conversations={[conversation]} selectedId="c1" loading={false} onSelect={vi.fn()} onNew={vi.fn()} onImport={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} /></SidebarProvider></TooltipProvider>);
     expect(screen.getByRole("button", { name: /History item/ })).toHaveClass("min-h-11", "py-1.5");
+    expect(screen.queryByPlaceholderText("搜索会话")).not.toBeInTheDocument();
+  });
+
+  it("opens keyboard search and selects the active result", async () => {
+    const onSelect = vi.fn();
+    render(<TooltipProvider><SidebarProvider><ConversationSidebar conversations={[conversation]} selectedId="c1" loading={false} onSelect={onSelect} onNew={vi.fn()} onImport={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} /></SidebarProvider></TooltipProvider>);
+
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const search = await screen.findByRole("combobox", { name: "搜索会话" });
+    fireEvent.change(search, { target: { value: "History" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+
+    expect(onSelect).toHaveBeenCalledWith("c1");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("creates a new conversation from the keyboard shortcut", () => {
+    const onNew = vi.fn().mockResolvedValue(undefined);
+    render(<TooltipProvider><SidebarProvider><ConversationSidebar conversations={[conversation]} selectedId="c1" loading={false} onSelect={vi.fn()} onNew={onNew} onImport={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} /></SidebarProvider></TooltipProvider>);
+
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    expect(onNew).toHaveBeenCalledOnce();
+  });
+
+  it("resizes the desktop conversation list with the visible separator", () => {
+    render(<TooltipProvider><SidebarProvider><ConversationSidebar conversations={[conversation]} selectedId="c1" loading={false} onSelect={vi.fn()} onNew={vi.fn()} onImport={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} /></SidebarProvider></TooltipProvider>);
+    const separator = screen.getByRole("separator", { name: "调整会话列表宽度" });
+    const wrapper = document.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]');
+
+    expect(separator).toHaveAttribute("aria-valuenow", "224");
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+
+    expect(separator).toHaveAttribute("aria-valuenow", "240");
+    expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("240px");
+  });
+
+  it("toggles the desktop sidebar with the keyboard shortcut", () => {
+    render(<TooltipProvider><SidebarProvider><ConversationSidebar conversations={[conversation]} selectedId="c1" loading={false} onSelect={vi.fn()} onNew={vi.fn()} onImport={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} /></SidebarProvider></TooltipProvider>);
+    const sidebar = document.querySelector<HTMLElement>('[data-slot="sidebar"][data-state]');
+
+    expect(sidebar).toHaveAttribute("data-state", "expanded");
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    expect(sidebar).toHaveAttribute("data-state", "collapsed");
   });
 
   it("renames a history item", async () => {

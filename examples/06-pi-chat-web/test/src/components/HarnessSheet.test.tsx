@@ -24,7 +24,8 @@ describe("HarnessSheet", () => {
     render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} warning="not a sandbox" onCompact={vi.fn()} onSettings={vi.fn()} />);
     const activity = screen.getByRole("tab", { name: "活动" });
     expect(activity).toHaveAttribute("data-state", "active");
-    expect(activity).toHaveClass("data-[state=active]:bg-primary", "data-[state=active]:text-primary-foreground", "dark:data-[state=active]:text-primary-foreground");
+    expect(activity).toHaveClass("data-active:text-foreground", "after:bg-foreground", "group-data-[variant=line]/tabs-list:data-active:after:opacity-100");
+    expect(activity).not.toHaveClass("data-active:bg-primary");
     fireEvent.mouseDown(screen.getByRole("tab", { name: "设置" }), { button: 0, ctrlKey: false });
     expect(screen.getByRole("tab", { name: "设置" })).toHaveAttribute("data-state", "active");
   });

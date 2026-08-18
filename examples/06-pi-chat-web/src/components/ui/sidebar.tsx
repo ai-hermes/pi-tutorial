@@ -22,14 +22,17 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { PanelLeftIcon } from "lucide-react"
+import { GripVerticalIcon, PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+const SIDEBAR_DEFAULT_WIDTH = 224
+const SIDEBAR_MIN_WIDTH = 208
+const SIDEBAR_MAX_WIDTH = 384
+const SIDEBAR_WIDTH_STORAGE_KEY = "pi-chat-sidebar-width"
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -39,6 +42,9 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
+  setResizing: (resizing: boolean) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -67,6 +73,22 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const [resizing, setResizing] = React.useState(false)
+  const [sidebarWidth, setSidebarWidthState] = React.useState(() => {
+    if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH
+    const storedValue = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    const stored = storedValue === null ? Number.NaN : Number(storedValue)
+    return Number.isFinite(stored)
+      ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, stored))
+      : SIDEBAR_DEFAULT_WIDTH
+  })
+  const setSidebarWidth = React.useCallback((width: number) => {
+    setSidebarWidthState(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)))
+  }, [])
+
+  React.useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
+  }, [sidebarWidth])
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -121,8 +143,11 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      sidebarWidth,
+      setSidebarWidth,
+      setResizing,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, sidebarWidth, setSidebarWidth]
   )
 
   return (
@@ -131,11 +156,12 @@ function SidebarProvider({
         data-slot="sidebar-wrapper"
         style={
           {
-            "--sidebar-width": SIDEBAR_WIDTH,
-            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
             ...style,
+            "--sidebar-width": `${sidebarWidth}px`,
+            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
           } as React.CSSProperties
         }
+        data-resizing={resizing || undefined}
         className={cn(
           "group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar",
           className
@@ -253,6 +279,7 @@ function Sidebar({
 function SidebarTrigger({
   className,
   onClick,
+  title = "显示或隐藏侧边栏 (⌘/Ctrl+B)",
   ...props
 }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar } = useSidebar()
@@ -264,6 +291,7 @@ function SidebarTrigger({
       variant="ghost"
       size="icon-sm"
       className={cn(className)}
+      title={title}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -276,28 +304,78 @@ function SidebarTrigger({
   )
 }
 
-function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar()
+function SidebarRail({ className, onPointerDown, onPointerMove, onPointerUp, onKeyDown, ...props }: React.ComponentProps<"button">) {
+  const { state, sidebarWidth, setSidebarWidth, setResizing } = useSidebar()
+  const drag = React.useRef<{ pointerId: number; startX: number; startWidth: number; direction: 1 | -1 } | undefined>(undefined)
+  const stopDragging = React.useCallback((element?: HTMLButtonElement, pointerId?: number) => {
+    if (pointerId !== undefined && element?.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId)
+    drag.current = undefined
+    setResizing(false)
+    document.body.style.removeProperty("cursor")
+    document.body.style.removeProperty("user-select")
+  }, [setResizing])
 
   return (
     <button
+      type="button"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整会话列表宽度"
+      aria-valuemin={SIDEBAR_MIN_WIDTH}
+      aria-valuemax={SIDEBAR_MAX_WIDTH}
+      aria-valuenow={sidebarWidth}
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
-      tabIndex={-1}
-      onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      title="拖拽调整会话列表宽度，双击恢复默认"
+      onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT_WIDTH)}
+      onPointerDown={(event) => {
+        onPointerDown?.(event)
+        if (event.defaultPrevented || state === "collapsed") return
+        event.preventDefault()
+        const side = event.currentTarget.closest<HTMLElement>("[data-side]")?.dataset.side
+        drag.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: sidebarWidth, direction: side === "right" ? -1 : 1 }
+        event.currentTarget.setPointerCapture?.(event.pointerId)
+        setResizing(true)
+        document.body.style.cursor = "col-resize"
+        document.body.style.userSelect = "none"
+      }}
+      onPointerMove={(event) => {
+        onPointerMove?.(event)
+        const current = drag.current
+        if (!current || current.pointerId !== event.pointerId) return
+        setSidebarWidth(current.startWidth + (event.clientX - current.startX) * current.direction)
+      }}
+      onPointerUp={(event) => {
+        onPointerUp?.(event)
+        if (drag.current?.pointerId === event.pointerId) stopDragging(event.currentTarget, event.pointerId)
+      }}
+      onPointerCancel={(event) => stopDragging(event.currentTarget, event.pointerId)}
+      onKeyDown={(event) => {
+        onKeyDown?.(event)
+        if (event.defaultPrevented) return
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault()
+          setSidebarWidth(sidebarWidth + (event.key === "ArrowRight" ? 16 : -16))
+        } else if (event.key === "Home") {
+          event.preventDefault()
+          setSidebarWidth(SIDEBAR_MIN_WIDTH)
+        } else if (event.key === "End") {
+          event.preventDefault()
+          setSidebarWidth(SIDEBAR_MAX_WIDTH)
+        }
+      }}
       className={cn(
-        "absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
-        "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-        "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
-        "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
-        "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
+        "absolute inset-y-0 z-20 hidden w-3 cursor-col-resize items-center justify-center border-0 bg-transparent p-0 group-data-[side=left]:-right-1.5 group-data-[side=right]:-left-1.5 md:flex",
+        "after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-sidebar-border after:transition-colors hover:after:bg-foreground/45 focus-visible:outline-none focus-visible:after:bg-ring",
+        "group-data-[collapsible=offcanvas]:hidden",
         className
       )}
       {...props}
-    />
+    >
+      <span className="relative z-10 flex h-10 w-2.5 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-muted-foreground shadow-xs transition-colors hover:border-foreground/30 hover:text-foreground">
+        <GripVerticalIcon className="size-2.5" aria-hidden="true" />
+      </span>
+    </button>
   )
 }
 
@@ -508,7 +586,7 @@ function SidebarMenuButton({
       data-slot="sidebar-menu-button"
       data-sidebar="menu-button"
       data-size={size}
-      data-active={isActive}
+      data-active={isActive || undefined}
       className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
       {...props}
     />

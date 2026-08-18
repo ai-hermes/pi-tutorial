@@ -13,22 +13,20 @@ export function RunGroup({ tools, index }: { tools: ToolRun[]; index: number }) 
   const StatusIcon = running > 0 ? LoaderCircleIcon : failed > 0 ? CircleXIcon : CheckCircle2Icon;
   const statusText = running > 0 ? "运行中" : failed > 0 ? "含失败步骤" : "全部完成";
 
-  return <Collapsible defaultOpen data-slot="run-group" className="run-group-shell group/run min-w-0 overflow-hidden rounded-lg bg-card shadow-[0_12px_28px_-26px_rgba(39,48,41,0.4)]">
-    <CollapsibleTrigger className="flex min-h-11 w-full items-center gap-2.5 bg-muted/25 px-3 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3.5">
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-link-soft text-link">
-        <PlayIcon className="size-3.5 fill-current" />
-      </span>
+  return <Collapsible defaultOpen data-slot="run-group" className="run-group-shell group/run min-w-0 overflow-hidden rounded-md border bg-card">
+    <CollapsibleTrigger className="flex min-h-11 w-full items-center gap-2.5 bg-surface-subtle px-3 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-3.5">
+      <PlayIcon className="size-3.5 shrink-0 fill-current text-foreground" />
       <span className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-2">
-        <span className="block shrink-0 font-mono text-[11px] font-semibold tracking-[0.04em] text-foreground">RUN {String(index).padStart(2, "0")} · 执行记录</span>
-        <span className="mt-0.5 block truncate font-mono text-[11px] text-[var(--muted-foreground)] sm:mt-0">{tools.length} 个步骤 · {statusText}</span>
+        <span className="block shrink-0 text-xs font-medium text-foreground">执行记录 <span className="font-mono">{String(index).padStart(2, "0")}</span></span>
+        <span className="mt-0.5 block truncate text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground sm:mt-0">{tools.length} 个步骤 · {statusText}</span>
       </span>
       <span className="hidden items-center gap-1.5 sm:flex">
-        {running > 0 && <Badge variant="outline" className="border-link/20 bg-link-soft/45 font-mono text-[11px] font-normal text-link"><LoaderCircleIcon data-icon="inline-start" className="animate-spin" />{running} 运行中</Badge>}
-        {completed > 0 && <Badge variant="outline" className="border-link/20 bg-link-soft/45 font-mono text-[11px] font-normal text-link"><CheckCircle2Icon data-icon="inline-start" />{completed} 成功</Badge>}
-        {failed > 0 && <Badge variant="outline" className="border-destructive/20 bg-destructive/5 font-mono text-[11px] font-normal text-destructive"><CircleXIcon data-icon="inline-start" />{failed} 失败</Badge>}
+        {running > 0 && <Badge variant="outline" className="font-normal"><LoaderCircleIcon data-icon="inline-start" className="animate-spin" />{running} 运行中</Badge>}
+        {completed > 0 && <Badge variant="outline" className="font-normal text-success"><CheckCircle2Icon data-icon="inline-start" />{completed} 成功</Badge>}
+        {failed > 0 && <Badge variant="outline" className="font-normal text-destructive"><CircleXIcon data-icon="inline-start" />{failed} 失败</Badge>}
       </span>
-      <StatusIcon className={cn("size-4 shrink-0 sm:hidden", running > 0 ? "animate-spin text-link" : failed > 0 ? "text-destructive" : "text-link")} />
-      <ChevronDownIcon className="size-4 shrink-0 text-[var(--muted-foreground)] transition-transform group-data-[state=open]/run:rotate-180" />
+      <StatusIcon className={cn("size-4 shrink-0 sm:hidden", running > 0 ? "animate-spin text-foreground" : failed > 0 ? "text-destructive" : "text-success")} />
+      <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/run:rotate-180" />
     </CollapsibleTrigger>
     <CollapsibleContent>
       <Separator />

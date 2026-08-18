@@ -7,6 +7,20 @@ describe("ChatTimeline", () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
 
+  it("shows the product welcome only before a conversation is entered", () => {
+    const { rerender } = render(<ChatTimeline showWelcome messages={[]} tools={[]} onBranch={vi.fn()} />);
+    expect(screen.getByText("交给 Pi 来完成")).toBeInTheDocument();
+
+    rerender(<ChatTimeline conversationId="c1" messages={[]} tools={[]} onBranch={vi.fn()} />);
+    expect(screen.queryByText("交给 Pi 来完成")).not.toBeInTheDocument();
+  });
+
+  it("keeps conversation content hidden behind the initial welcome", () => {
+    render(<ChatTimeline showWelcome conversationId="c1" messages={[{ id: "a", role: "assistant", text: "Existing reply", images: [], timestamp: 1 }]} tools={[]} onBranch={vi.fn()} />);
+    expect(screen.getByText("交给 Pi 来完成")).toBeInTheDocument();
+    expect(screen.queryByText("Existing reply")).not.toBeInTheDocument();
+  });
+
   it("renders streaming assistant text and copies fenced code", async () => {
     const { rerender } = render(<ChatTimeline messages={[{ id: "a", role: "assistant", text: "working", images: [], timestamp: 1, streaming: true }]} tools={[]} onBranch={vi.fn()} />);
     expect(screen.getByLabelText("生成中")).toBeInTheDocument();
@@ -41,16 +55,18 @@ describe("ChatTimeline", () => {
     expect(viewport).not.toContainElement(jump);
   });
 
-  it("uses matching message bubbles with actions outside their borders", () => {
+  it("differentiates user and assistant surfaces with actions outside their borders", () => {
     render(<ChatTimeline messages={[
       { id: "u", role: "user", text: "Question", images: [], timestamp: 1 },
       { id: "a", role: "assistant", text: "Answer", images: [], timestamp: 2 },
     ]} tools={[]} onBranch={vi.fn()} />);
 
     const articles = screen.getAllByRole("article");
+    expect(articles[0].querySelector('[data-slot="message-bubble"]')).toHaveClass("bg-muted", "px-3.5");
+    expect(articles[1].querySelector('[data-slot="message-bubble"]')).toHaveClass("bg-transparent", "px-0");
     for (const article of articles) {
       expect(article).toHaveClass("py-2");
-      expect(article.querySelector('[data-slot="message-bubble"]')).toHaveClass("text-sm", "px-3.5", "py-2.5");
+      expect(article.querySelector('[data-slot="message-bubble"]')).toHaveClass("text-sm", "py-2.5");
       const actions = article.querySelector('[data-slot="message-actions"]');
       expect(actions).toBeInTheDocument();
       expect(actions?.closest('[data-slot="message-bubble"]')).toBeNull();
@@ -79,14 +95,15 @@ describe("ChatTimeline", () => {
       { id: "t3", name: "bash", args: { command: "test" }, status: "error", result: "exit code: 1", startedAt: 7, endedAt: 8 },
     ]} onBranch={vi.fn()} />);
 
-    expect(screen.getByText("RUN 01 · 执行记录")).toBeInTheDocument();
+    expect(screen.getByText("执行记录")).toBeInTheDocument();
+    expect(screen.getByText("01")).toHaveClass("font-mono");
     expect(screen.getByText("3 个步骤 · 含失败步骤")).toBeInTheDocument();
     expect(screen.getByText("2 成功")).toBeInTheDocument();
     expect(screen.getByText("1 失败")).toBeInTheDocument();
     expect(container.querySelector('[data-slot="run-steps"]')).toHaveClass("divide-y");
     expect(container.querySelectorAll('[data-slot="tool-call-row"]')).toHaveLength(3);
     expect(container.querySelector('[data-slot="tool-call-row"]')).not.toHaveClass("rounded-lg", "border");
-    expect(container.querySelector('[data-slot="run-group"]')).not.toHaveClass("border");
+    expect(container.querySelector('[data-slot="run-group"]')).toHaveClass("rounded-md", "border", "bg-card");
     expect(container.querySelector('[data-slot="run-group-row"]')).not.toHaveClass("md:pl-10");
     expect(container.querySelector('[data-slot="run-group"] > button')).toHaveClass("min-h-11");
     expect(container.querySelector('[data-slot="tool-call-row"] > button')).toHaveClass("min-h-10");

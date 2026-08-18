@@ -1,6 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 
+class ResizeObserverMock implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+globalThis.ResizeObserver = ResizeObserverMock;
+
 if (typeof window !== "undefined") {
+  Element.prototype.scrollIntoView = () => {};
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: (query: string) => ({
