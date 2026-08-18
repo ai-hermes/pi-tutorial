@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ToolCallCard } from "./ToolCallCard";
+import { ToolCallCard } from "@/components/ToolCallCard";
 
 describe("ToolCallCard", () => {
   it("shows edit diff details", () => {

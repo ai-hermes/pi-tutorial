@@ -109,14 +109,14 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, onSettin
             <TabsContent value="settings" className="mt-0 flex flex-col gap-4 p-3.5 sm:p-4">
               <SettingSection icon={ListRestartIcon} title="自动化" description="控制上下文维护和失败恢复。">
                 <FieldGroup className="gap-0 divide-y">
-                  <SettingField label="自动压缩" description="接近上下文窗口时由 Pi 自动生成摘要。" checked={snapshot.settings.autoCompaction} onCheckedChange={(checked) => void onSettings({ autoCompaction: checked })} />
-                  <SettingField label="自动重试" description="对限流和临时服务错误自动重试。" checked={snapshot.settings.autoRetry} onCheckedChange={(checked) => void onSettings({ autoRetry: checked })} />
+                  <SettingField label="自动压缩" description="接近上下文窗口时由 Pi 自动生成摘要。" checked={snapshot.settings.autoCompaction} onCheckedChange={(checked) => { onSettings({ autoCompaction: checked }).catch(() => undefined); }} />
+                  <SettingField label="自动重试" description="对限流和临时服务错误自动重试。" checked={snapshot.settings.autoRetry} onCheckedChange={(checked) => { onSettings({ autoRetry: checked }).catch(() => undefined); }} />
                 </FieldGroup>
               </SettingSection>
               <SettingSection icon={Settings2Icon} title="队列消费" description="决定运行中插入的消息如何被消费。">
                 <FieldGroup className="gap-0 divide-y">
-                  <QueueModeField label="Steer 消费" description="控制每轮处理一条还是全部 steer 消息。" value={snapshot.settings.steeringMode} onValueChange={(steeringMode) => void onSettings({ steeringMode })} />
-                  <QueueModeField label="Follow-up 消费" description="控制每轮处理一条还是全部 follow-up 消息。" value={snapshot.settings.followUpMode} onValueChange={(followUpMode) => void onSettings({ followUpMode })} />
+                  <QueueModeField label="Steer 消费" description="控制每轮处理一条还是全部 steer 消息。" value={snapshot.settings.steeringMode} onValueChange={(steeringMode) => { onSettings({ steeringMode }).catch(() => undefined); }} />
+                  <QueueModeField label="Follow-up 消费" description="控制每轮处理一条还是全部 follow-up 消息。" value={snapshot.settings.followUpMode} onValueChange={(followUpMode) => { onSettings({ followUpMode }).catch(() => undefined); }} />
                 </FieldGroup>
               </SettingSection>
             </TabsContent>
@@ -129,7 +129,7 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, onSettin
       <DialogContent>
         <DialogHeader><DialogTitle>压缩上下文</DialogTitle><DialogDescription>Pi 会把较早内容汇总为可恢复的 compaction entry。指令可留空。</DialogDescription></DialogHeader>
         <FieldGroup><Field><FieldLabel htmlFor="compact-instructions">自定义摘要指令</FieldLabel><Textarea id="compact-instructions" value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} placeholder="例如：保留所有文件路径和未完成事项" /></Field></FieldGroup>
-        <DialogFooter><Button variant="outline" onClick={() => setCompactOpen(false)}>取消</Button><Button onClick={() => void onCompact(instructions).then(() => setCompactOpen(false))}>开始压缩</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => setCompactOpen(false)}>取消</Button><Button onClick={() => { onCompact(instructions).then(() => setCompactOpen(false)).catch(() => undefined); }}>开始压缩</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   </>;

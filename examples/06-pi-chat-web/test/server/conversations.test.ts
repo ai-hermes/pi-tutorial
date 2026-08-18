@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { validateAttachments, validateImages } from "./attachments";
-import { ConversationService } from "./conversations";
-import { MAX_IMPORT_BYTES } from "./session-files";
+import { validateAttachments, validateImages } from "@server/attachments";
+import { ConversationService } from "@server/conversations";
+import { MAX_IMPORT_BYTES } from "@server/session-files";
 
 const roots: string[] = [];
 

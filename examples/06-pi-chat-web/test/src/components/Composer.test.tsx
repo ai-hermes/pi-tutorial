@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Composer } from "./Composer";
+import { Composer } from "@/components/Composer";
 
 const controls = {
   models: [{ provider: "openai", id: "gpt-5.6-sol", name: "GPT-5.6 Sol", contextWindow: 200_000, reasoning: true, imageInput: true }],

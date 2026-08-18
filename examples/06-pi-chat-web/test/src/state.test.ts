@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationSnapshot, StreamEvent } from "../shared/types";
-import { snapshotReducer } from "./state";
+import type { ConversationSnapshot, StreamEvent } from "@shared/types";
+import { snapshotReducer } from "@/state";
 
 const snapshot: ConversationSnapshot = {
   conversation: { id: "c1", title: "Chat", createdAt: "2026-01-01", updatedAt: "2026-01-01", messageCount: 0, workspace: "/tmp/chat", status: "ready" },

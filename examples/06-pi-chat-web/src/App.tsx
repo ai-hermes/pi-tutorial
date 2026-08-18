@@ -61,7 +61,7 @@ export default function App() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    void Promise.all([getBootstrap(), listConversations()]).then(async ([boot, items]) => {
+    Promise.all([getBootstrap(), listConversations()]).then(async ([boot, items]) => {
       setBootstrap(boot);
       setConversations(items);
       if (items[0]) dispatch({ type: "snapshot", snapshot: await getConversation(items[0].id) });
@@ -73,7 +73,7 @@ export default function App() {
     if (!snapshot) return undefined;
     const source = connectEvents(snapshot.conversation.id, snapshot.stream.id, snapshot.stream.lastEventId, (event) => {
       if (event.type === "snapshot.required" || event.type === "runtime.settled") {
-        void getConversation(snapshot.conversation.id).then((next) => dispatch({ type: "snapshot", snapshot: next })).then(refreshList).catch(report);
+        getConversation(snapshot.conversation.id).then((next) => dispatch({ type: "snapshot", snapshot: next })).then(refreshList).catch(report);
       } else {
         pendingEvents.current.push(event);
         if (eventFrame.current === undefined) {
@@ -104,7 +104,7 @@ export default function App() {
       conversations={conversations}
       selectedId={snapshot?.conversation.id}
       loading={loading}
-      onSelect={(id) => void openConversation(id)}
+      onSelect={(id) => { openConversation(id).catch(report); }}
       onNew={newConversation}
       onImport={importSession}
       onRename={async (id, title) => guarded(async () => { await renameConversation(id, title); await refreshList(); if (snapshot?.conversation.id === id) dispatch({ type: "snapshot", snapshot: await getConversation(id) }); }, "已重命名")}

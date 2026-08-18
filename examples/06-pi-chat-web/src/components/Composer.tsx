@@ -75,7 +75,7 @@ export function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); }
+            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit().catch(() => undefined); }
           }}
           placeholder={queueing ? "输入一条 steer 或 follow-up 消息…" : status === "compacting" ? "正在压缩上下文…" : status === "stopping" ? "正在停止…" : "向 Pi Chat 提问…"}
           disabled={blocked}
@@ -94,7 +94,7 @@ export function Composer({
             {queued > 0 && !queueing && <Badge variant="outline" className="font-mono text-xs font-normal">Queue {queued}</Badge>}
           </div>
           <div className="flex items-center gap-1.5">
-            {busy && <Button variant="outline" size="xs" onClick={() => void onAbort()} disabled={status === "stopping"}>{status === "stopping" ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <OctagonIcon data-icon="inline-start" />}停止</Button>}
+            {busy && <Button variant="outline" size="xs" onClick={() => { onAbort().catch(() => undefined); }} disabled={status === "stopping"}>{status === "stopping" ? <LoaderCircleIcon className="animate-spin" data-icon="inline-start" /> : <OctagonIcon data-icon="inline-start" />}停止</Button>}
             <ModelThinkingMenu
               disabled={busy}
               models={models}
@@ -104,7 +104,7 @@ export function Composer({
               onModelChange={onModelChange}
               onThinkingChange={onThinkingChange}
             />
-            <Button size="icon-sm" aria-label="发送消息" disabled={(!text.trim() && files.length === 0) || submitting || blocked} onClick={() => void submit()}><ArrowUpIcon /></Button>
+            <Button size="icon-sm" aria-label="发送消息" disabled={(!text.trim() && files.length === 0) || submitting || blocked} onClick={() => { submit().catch(() => undefined); }}><ArrowUpIcon /></Button>
           </div>
         </InputGroupAddon>
       </InputGroup>
@@ -181,7 +181,7 @@ function ModelThinkingMenu({
             <DropdownMenuSubContent sideOffset={4} className="max-h-[min(26rem,calc(100vh-2rem))] w-64 max-w-[calc(100vw-1rem)] overflow-y-auto p-1">
               <DropdownMenuRadioGroup value={modelValue} onValueChange={(value) => {
                 const separator = value.indexOf("/");
-                void onModelChange(value.slice(0, separator), value.slice(separator + 1));
+                onModelChange(value.slice(0, separator), value.slice(separator + 1)).catch(() => undefined);
               }}>
                 {providers.map((provider) => <DropdownMenuGroup key={provider}>
                   {providers.length > 1 && <DropdownMenuLabel className="px-2 pb-0.5 pt-1.5 font-mono text-[10px] uppercase tracking-[0.08em] first:pt-1">{provider}</DropdownMenuLabel>}
@@ -206,7 +206,7 @@ function ModelThinkingMenu({
           <DropdownMenuPortal>
             <DropdownMenuSubContent sideOffset={4} className="w-56 max-w-[calc(100vw-1rem)] p-1">
               <DropdownMenuLabel className="px-2 py-1 text-xs">思考深度</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={thinkingLevel} onValueChange={(value) => void onThinkingChange(value as ThinkingLevel)}>
+              <DropdownMenuRadioGroup value={thinkingLevel} onValueChange={(value) => { onThinkingChange(value as ThinkingLevel).catch(() => undefined); }}>
                 <DropdownMenuGroup>
                   {thinkingLevels.map((level) => <DropdownMenuRadioItem key={level} value={level} className="min-h-11 items-start px-2 py-1.5 pr-8 sm:min-h-8">
                     <span className="flex min-w-0 flex-col gap-0.5">

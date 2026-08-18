@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ConversationSnapshot } from "../../shared/types";
-import { HarnessSheet } from "./HarnessSheet";
+import type { ConversationSnapshot } from "@shared/types";
+import { HarnessSheet } from "@/components/HarnessSheet";
 
 const snapshot: ConversationSnapshot = {
   conversation: { id: "c1", title: "Test", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", messageCount: 0, workspace: "/tmp/test", status: "ready" },

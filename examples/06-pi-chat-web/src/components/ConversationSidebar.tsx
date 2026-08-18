@@ -40,7 +40,7 @@ export function ConversationSidebar({ conversations, selectedId, loading, onSele
           <div className="min-w-0"><strong className="block text-sm leading-4 tracking-[-0.28px]">Pi Chat</strong><span className="font-mono text-[10px] tracking-[0.06em] text-muted-foreground">Local workbench</span></div>
         </div>
         <div className="grid grid-cols-[1fr_auto] gap-1.5">
-          <Button size="sm" className="justify-start bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/85" onClick={() => void onNew()} disabled={loading}><PlusIcon data-icon="inline-start" />新建任务</Button>
+          <Button size="sm" className="justify-start bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/85" onClick={() => { onNew().catch(() => undefined); }} disabled={loading}><PlusIcon data-icon="inline-start" />新建任务</Button>
           <Button variant="outline" size="icon-sm" aria-label="导入会话" title="导入 Pi Session JSONL" onClick={() => importInput.current?.click()} disabled={loading}><FileUpIcon /></Button>
           <input
             ref={importInput}
@@ -51,7 +51,7 @@ export function ConversationSidebar({ conversations, selectedId, loading, onSele
             onChange={(event) => {
               const file = event.target.files?.[0];
               event.target.value = "";
-              if (file) void onImport(file);
+              if (file) onImport(file).catch(() => undefined);
             }}
           />
         </div>
@@ -100,14 +100,14 @@ export function ConversationSidebar({ conversations, selectedId, loading, onSele
       <DialogContent>
         <DialogHeader><DialogTitle>重命名对话</DialogTitle><DialogDescription>新标题会写入 Pi session 元数据。</DialogDescription></DialogHeader>
         <FieldGroup><Field><FieldLabel htmlFor="conversation-title">标题</FieldLabel><Input id="conversation-title" value={renameText} onChange={(event) => setRenameText(event.target.value)} /></Field></FieldGroup>
-        <DialogFooter><Button variant="outline" onClick={() => setRenameItem(undefined)}>取消</Button><Button onClick={() => { if (renameItem) void onRename(renameItem.id, renameText).then(() => setRenameItem(undefined)); }} disabled={!renameText.trim()}>保存</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => setRenameItem(undefined)}>取消</Button><Button onClick={() => { if (renameItem) onRename(renameItem.id, renameText).then(() => setRenameItem(undefined)).catch(() => undefined); }} disabled={!renameText.trim()}>保存</Button></DialogFooter>
       </DialogContent>
     </Dialog>
 
     <AlertDialog open={Boolean(deleteItem)} onOpenChange={(open) => { if (!open) setDeleteItem(undefined); }}>
       <AlertDialogContent>
         <AlertDialogHeader><AlertDialogTitle>删除“{deleteItem?.title}”？</AlertDialogTitle><AlertDialogDescription>会话 JSONL 会被删除；仅当没有其他分支引用时才会删除共享 workspace。</AlertDialogDescription></AlertDialogHeader>
-        <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => { if (deleteItem) void onDelete(deleteItem.id).then(() => setDeleteItem(undefined)); }}>删除</AlertDialogAction></AlertDialogFooter>
+        <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => { if (deleteItem) onDelete(deleteItem.id).then(() => setDeleteItem(undefined)).catch(() => undefined); }}>删除</AlertDialogAction></AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   </>;

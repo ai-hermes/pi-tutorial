@@ -280,7 +280,7 @@ export class ConversationService {
     });
     this.setStatus(active, "running");
 
-    void session.prompt(clean || "请分析附带的图片。", {
+    session.prompt(clean || "请分析附带的图片。", {
       images,
       preflightResult: (accepted) => {
         if (!accepted) this.fail(active, new Error("消息未被 Agent 接受。"));
@@ -319,7 +319,7 @@ export class ConversationService {
   async compact(id: string, instructions?: string): Promise<void> {
     const active = await this.ensureIdle(id);
     this.setStatus(active, "compacting");
-    void active.runtime.session.compact(instructions?.trim() || undefined)
+    active.runtime.session.compact(instructions?.trim() || undefined)
       .then(() => this.setStatus(active, "ready"))
       .catch((error: unknown) => this.fail(active, error));
   }
@@ -585,9 +585,9 @@ export class ConversationService {
         active.streamMessageId = undefined;
         this.setStatus(active, "ready");
         active.events.publish("runtime.settled", {});
-        void this.updateRecord(active.id, (record) => {
+        this.updateRecord(active.id, (record) => {
           record.updatedAt = new Date().toISOString();
-        });
+        }).catch((error: unknown) => this.fail(active, error));
         this.touch(active);
         break;
       default:
@@ -610,7 +610,9 @@ export class ConversationService {
 
   private touch(active: ActiveConversation): void {
     if (active.timer) clearTimeout(active.timer);
-    active.timer = setTimeout(() => void this.releaseIdle(active.id), this.ttlMs);
+    active.timer = setTimeout(() => {
+      this.releaseIdle(active.id).catch((error: unknown) => this.fail(active, error));
+    }, this.ttlMs);
     active.timer.unref?.();
   }
 

@@ -117,7 +117,7 @@ export function ChatTimeline({ conversationId, messages, tools, onBranch }: Prop
         </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setBranchMessage(undefined)}>取消</Button>
-          <Button onClick={() => void branch()} disabled={!branchText.trim() || branching}>
+          <Button onClick={() => { branch().catch(() => undefined); }} disabled={!branchText.trim() || branching}>
             <GitBranchIcon data-icon="inline-start" />{branching ? "创建中" : "创建分支"}
           </Button>
         </DialogFooter>
@@ -160,7 +160,7 @@ function MessageRow({ message, onBranch }: { message: ChatMessage; onBranch(): v
       {message.error && <p className="mt-2 text-sm text-destructive">{message.error}</p>}
       </div>
       {!message.streaming && message.text && <div data-slot="message-actions" className={cn("mt-0.5 flex gap-0.5 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100", isUser ? "justify-end" : "justify-start")}>
-        <Button variant="ghost" size="icon-xs" aria-label="复制消息" onClick={() => void copy()}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
+        <Button variant="ghost" size="icon-xs" aria-label="复制消息" onClick={() => { copy().catch(() => undefined); }}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
         {isUser && <Button variant="ghost" size="icon-xs" aria-label="编辑并创建分支" onClick={onBranch}><PencilIcon /></Button>}
       </div>}
     </div>
@@ -177,7 +177,7 @@ function CodeBlock({ children }: { children: ReactNode }) {
   };
 
   return <div className="group/code relative mb-2.5 overflow-auto rounded-lg border bg-surface-subtle p-3 font-mono text-xs leading-5">
-    <Button variant="ghost" size="icon-xs" className="absolute top-2 right-2 opacity-0 transition-opacity group-hover/code:opacity-100 focus-visible:opacity-100" aria-label="复制代码块" onClick={() => void copy()}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
+    <Button variant="ghost" size="icon-xs" className="absolute top-2 right-2 opacity-0 transition-opacity group-hover/code:opacity-100 focus-visible:opacity-100" aria-label="复制代码块" onClick={() => { copy().catch(() => undefined); }}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
     {children}
   </div>;
 }

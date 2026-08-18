@@ -36,7 +36,7 @@ export function ChatPanel({ messages, tools, status, error, onSend, onAbort, onS
     <ScrollArea className="min-h-0 flex-1"><div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6 md:px-6">
       {!messages.length ? <div className="flex min-h-[45vh] flex-col justify-center gap-5">
         <div className="space-y-2"><div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><DatabaseZap className="size-4" /></div><h2 className="text-xl font-semibold tracking-tight">从一个可验证的问题开始</h2><p className="max-w-xl text-sm leading-6 text-muted-foreground">DataAgent 会展示读取的结构、执行的 SQL、可视化和用于结论的贡献证据。</p></div>
-        <div className="grid gap-2 sm:grid-cols-3">{SUGGESTIONS.map((suggestion) => <button key={suggestion} type="button" onClick={() => void submit(suggestion)} className="rounded-lg border bg-card p-3 text-left text-xs leading-5 transition-colors hover:border-primary/40 hover:bg-accent">{suggestion}</button>)}</div>
+        <div className="grid gap-2 sm:grid-cols-3">{SUGGESTIONS.map((suggestion) => <button key={suggestion} type="button" onClick={() => { submit(suggestion).catch(() => undefined); }} className="rounded-lg border bg-card p-3 text-left text-xs leading-5 transition-colors hover:border-primary/40 hover:bg-accent">{suggestion}</button>)}</div>
       </div> : messages.map((message) => <article key={message.id} className={`space-y-2 ${message.role === "user" ? "ml-auto max-w-[85%]" : "max-w-full"}`}>
         <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground"><span>{message.role === "user" ? "你" : "DataAgent"}</span>{message.streaming && <Badge variant="secondary"><LoaderCircle className="animate-spin" />分析中</Badge>}</div>
         {message.role === "user" ? <p className="rounded-xl bg-primary px-4 py-2.5 text-sm text-primary-foreground">{message.content}</p> : <div className="markdown-body">
@@ -53,10 +53,10 @@ export function ChatPanel({ messages, tools, status, error, onSend, onAbort, onS
       {(error || submitError) && <Alert variant="destructive" role="alert"><TriangleAlert /><AlertTitle>请求失败</AlertTitle><AlertDescription>{submitError ?? error}</AlertDescription></Alert>}
       <div ref={end} />
     </div></ScrollArea>
-    <div className="shrink-0 border-t bg-background/95 p-3 backdrop-blur md:p-4"><form className="mx-auto max-w-3xl" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <div className="shrink-0 border-t bg-background/95 p-3 backdrop-blur md:p-4"><form className="mx-auto max-w-3xl" onSubmit={(event) => { event.preventDefault(); submit().catch(() => undefined); }}>
       <Field><FieldLabel htmlFor="question" className="sr-only">向数据提问</FieldLabel><div className="relative rounded-xl border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring/40">
-        <Textarea id="question" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submit(); } }} placeholder="例如：按地区比较销售额，并做贡献归因" disabled={busy} className="min-h-20 resize-none border-0 bg-transparent pr-14 shadow-none focus-visible:ring-0" />
-        {busy ? <Button type="button" size="icon-sm" variant="destructive" className="absolute right-2 bottom-2" onClick={() => void onAbort()} disabled={status === "stopping"} aria-label="停止生成"><CircleStop /></Button> : <Button type="submit" size="icon-sm" className="absolute right-2 bottom-2" disabled={!text.trim()} aria-label="发送"><ArrowUp /></Button>}
+        <Textarea id="question" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit().catch(() => undefined); } }} placeholder="例如：按地区比较销售额，并做贡献归因" disabled={busy} className="min-h-20 resize-none border-0 bg-transparent pr-14 shadow-none focus-visible:ring-0" />
+        {busy ? <Button type="button" size="icon-sm" variant="destructive" className="absolute right-2 bottom-2" onClick={() => { onAbort().catch(() => undefined); }} disabled={status === "stopping"} aria-label="停止生成"><CircleStop /></Button> : <Button type="submit" size="icon-sm" className="absolute right-2 bottom-2" disabled={!text.trim()} aria-label="发送"><ArrowUp /></Button>}
       </div><FieldDescription>Enter 发送，Shift + Enter 换行。查询最多返回 200 行。</FieldDescription></Field>
     </form></div>
   </section>;

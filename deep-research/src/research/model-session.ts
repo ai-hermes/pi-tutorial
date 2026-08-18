@@ -35,7 +35,7 @@ export async function promptForText(session: AgentSession, prompt: string, timeo
   });
   const timer = setTimeout(() => {
     timedOut = true;
-    void session.abort();
+    session.abort().catch(() => undefined);
   }, timeoutMs);
   try {
     await session.prompt(prompt);

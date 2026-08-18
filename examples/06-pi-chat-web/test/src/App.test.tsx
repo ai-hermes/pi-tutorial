@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ThemeToggle } from "./App";
-import { PermissionMenu } from "./components/Composer";
+import { ThemeToggle } from "@/App";
+import { PermissionMenu } from "@/components/Composer";
 
 describe("PermissionMenu", () => {
   it("exposes the single persistent local-permission warning", () => {

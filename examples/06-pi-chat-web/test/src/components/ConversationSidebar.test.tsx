@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ConversationSidebar } from "./ConversationSidebar";
+import { ConversationSidebar } from "@/components/ConversationSidebar";
 
 const conversation = { id: "c1", title: "History item", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", messageCount: 0, workspace: "/tmp/test", status: "cold" as const };
 const desktopWidth = window.innerWidth;

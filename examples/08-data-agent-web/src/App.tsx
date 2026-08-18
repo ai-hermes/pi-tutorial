@@ -37,12 +37,12 @@ export default function App() {
   const lastEventId = useRef(0);
   const theme = useThemePreference();
 
-  useEffect(() => { void getWorkspace().then((next) => { dispatch({ type: "snapshot", snapshot: next }); lastEventId.current = next.lastEventId; }).catch((reason) => setPageError(reason instanceof Error ? reason.message : String(reason))).finally(() => setLoading(false)); }, []);
+  useEffect(() => { getWorkspace().then((next) => { dispatch({ type: "snapshot", snapshot: next }); lastEventId.current = next.lastEventId; }).catch((reason) => setPageError(reason instanceof Error ? reason.message : String(reason))).finally(() => setLoading(false)); }, []);
   useEffect(() => { lastEventId.current = snapshot.lastEventId; }, [snapshot.lastEventId]);
   useEffect(() => {
     if (!snapshot.workspace) { setConnected(false); return undefined; }
     const source = connectEvents(lastEventId.current, (event) => {
-      if (event.type === "snapshot.required") { void getWorkspace().then((next) => dispatch({ type: "snapshot", snapshot: next })); return; }
+      if (event.type === "snapshot.required") { getWorkspace().then((next) => dispatch({ type: "snapshot", snapshot: next })).catch((reason) => setPageError(reason instanceof Error ? reason.message : String(reason))); return; }
       dispatch({ type: "event", event });
     }, setConnected);
     return () => source.close();
@@ -76,15 +76,15 @@ export default function App() {
         <div className="ml-auto flex items-center gap-1.5">
           {snapshot.workspace && <><Badge variant="outline" className="hidden gap-1 sm:flex">{connected ? <Wifi className="text-primary" /> : <WifiOff />}{connected ? "已连接" : "重连中"}</Badge>
             <div className="flex md:hidden"><Button variant="ghost" size="icon-sm" aria-label="打开数据目录" onClick={() => setCatalogOpen(true)}><ListTree /></Button><Button variant="ghost" size="icon-sm" aria-label="打开证据检查器" onClick={() => setEvidenceOpen(true)}><BarChart3 /></Button></div>
-            <Input ref={replaceInput} type="file" className="sr-only" accept={ACCEPT} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} />
+            <Input ref={replaceInput} type="file" className="sr-only" accept={ACCEPT} onChange={(event) => { const file = event.target.files?.[0]; if (file) upload(file).catch(() => undefined); }} />
             <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => replaceInput.current?.click()} disabled={busy || uploading}><RefreshCw data-icon="inline-start" className={uploading ? "animate-spin" : ""} />更换数据</Button>
-            <AlertDialog><Tooltip><TooltipTrigger asChild><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm" disabled={busy} aria-label="删除工作区"><Trash2 /></Button></AlertDialogTrigger></TooltipTrigger><TooltipContent>删除当前临时工作区</TooltipContent></Tooltip><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除当前工作区？</AlertDialogTitle><AlertDialogDescription>临时数据、对话记录和所有证据都将被清理，此操作无法撤销。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => void remove()}>删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></>}
+            <AlertDialog><Tooltip><TooltipTrigger asChild><AlertDialogTrigger asChild><Button variant="ghost" size="icon-sm" disabled={busy} aria-label="删除工作区"><Trash2 /></Button></AlertDialogTrigger></TooltipTrigger><TooltipContent>删除当前临时工作区</TooltipContent></Tooltip><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除当前工作区？</AlertDialogTitle><AlertDialogDescription>临时数据、对话记录和所有证据都将被清理，此操作无法撤销。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => { remove().catch(() => undefined); }}>删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></>}
           <DropdownMenu><Tooltip><TooltipTrigger asChild><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="切换主题"><ThemeIcon /></Button></DropdownMenuTrigger></TooltipTrigger><TooltipContent>主题：{currentTheme.label}</TooltipContent></Tooltip><DropdownMenuContent align="end">{themeOptions.map((item) => <DropdownMenuItem key={item.value} onClick={() => theme.setPreference(item.value)}><item.icon />{item.label}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
         </div>
       </header>
       {pageError && snapshot.workspace && <Alert variant="destructive" className="rounded-none border-x-0 border-t-0"><AlertDescription>{pageError}</AlertDescription></Alert>}
       {loading ? <div className="grid flex-1 place-items-center"><div className="w-56 space-y-3"><Skeleton className="mx-auto size-10 rounded-xl" /><Skeleton className="h-5 w-full" /><Skeleton className="mx-auto h-4 w-3/4" /></div></div>
-      : !snapshot.workspace || !snapshot.catalog ? <UploadScreen onUpload={(file) => void upload(file)} uploading={uploading} error={pageError} />
+      : !snapshot.workspace || !snapshot.catalog ? <UploadScreen onUpload={(file) => { upload(file).catch(() => undefined); }} uploading={uploading} error={pageError} />
       : <main className="min-h-0 flex-1">
         <div className="hidden h-full md:block"><ResizablePanelGroup orientation="horizontal"><ResizablePanel defaultSize={20} minSize={15} maxSize={30}><CatalogPanel catalog={snapshot.catalog} /></ResizablePanel><ResizableHandle /><ResizablePanel defaultSize={52} minSize={35}><ChatPanel messages={snapshot.messages} tools={snapshot.tools} status={snapshot.status} error={snapshot.error} onSend={sendMessage} onAbort={abortRun} onSelectEvidence={selectEvidence} /></ResizablePanel><ResizableHandle /><ResizablePanel defaultSize={28} minSize={20} maxSize={45}><EvidencePanel queries={snapshot.queries} charts={snapshot.charts} attributions={snapshot.attributions} selectedId={selectedEvidence} onSelect={setSelectedEvidence} /></ResizablePanel></ResizablePanelGroup></div>
         <div className="h-full md:hidden"><ChatPanel messages={snapshot.messages} tools={snapshot.tools} status={snapshot.status} error={snapshot.error} onSend={sendMessage} onAbort={abortRun} onSelectEvidence={selectEvidence} /></div>

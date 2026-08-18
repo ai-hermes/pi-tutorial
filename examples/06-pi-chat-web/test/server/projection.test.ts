@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectTranscript } from "./projection";
+import { projectTranscript } from "@server/projection";
 
 describe("projectTranscript", () => {
   it("hides thinking and joins tool calls with results", () => {

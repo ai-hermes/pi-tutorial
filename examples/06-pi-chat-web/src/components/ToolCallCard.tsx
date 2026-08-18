@@ -85,7 +85,7 @@ function OutputSection({ title, output, diff = false }: { title: string; output:
     <div className="flex h-8 items-center gap-2 px-2.5">
       <span className="font-mono text-xs font-medium">{title}</span>
       {stats && <span className="font-mono text-xs text-muted-foreground">+{stats.added} -{stats.removed}</span>}
-      <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label={`复制${title}`} onClick={() => void copy()}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
+      <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label={`复制${title}`} onClick={() => { copy().catch(() => undefined); }}>{copied ? <CheckIcon /> : <CopyIcon />}</Button>
     </div>
     <Separator />
     {diff ? <DiffView value={output} /> : <pre className="max-h-80 overflow-auto p-2.5 font-mono text-xs leading-5 whitespace-pre-wrap">{output}</pre>}

@@ -2,8 +2,8 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { ConversationSnapshot } from "@shared/types";
-import { createApp } from "./app";
-import type { ConversationService } from "./conversations";
+import { createApp } from "@server/app";
+import type { ConversationService } from "@server/conversations";
 
 describe("conversation import route", () => {
   it("accepts a multipart JSONL file and returns the imported snapshot", async () => {

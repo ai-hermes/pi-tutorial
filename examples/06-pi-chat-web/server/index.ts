@@ -17,5 +17,15 @@ async function shutdown(): Promise<void> {
   server.close(() => process.exit(0));
 }
 
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => {
+  shutdown().catch((error) => {
+    process.stderr.write(`Shutdown failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+});
+process.on("SIGTERM", () => {
+  shutdown().catch((error) => {
+    process.stderr.write(`Shutdown failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+});

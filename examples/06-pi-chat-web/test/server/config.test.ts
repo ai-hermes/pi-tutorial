@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertInside, resolvePaths } from "./config";
+import { assertInside, resolvePaths } from "@server/config";
 
 describe("managed paths", () => {
   it("accepts descendants and rejects the root or traversal", () => {
