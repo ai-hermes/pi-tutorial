@@ -89,15 +89,27 @@ describe("ChatTimeline", () => {
     expect(screen.queryByText("Pi")).not.toBeInTheDocument();
   });
 
-  it("renders the optimistic user input before an assistant stream", () => {
+  it("renders the optimistic user input without a sending status", () => {
     render(<ChatTimeline conversationId="c1" messages={[
       { id: "optimistic_1", role: "user", text: "Question", images: [], timestamp: 10, pending: true },
       { id: "stream_1", role: "assistant", text: "Answer", images: [], timestamp: 11, streaming: true },
     ]} tools={[]} onBranch={vi.fn()} />);
     const articles = screen.getAllByRole("article");
     expect(articles[0]).toHaveTextContent("Question");
-    expect(articles[0]).toHaveTextContent("发送中");
+    expect(screen.queryByText("发送中")).not.toBeInTheDocument();
     expect(articles[1]).toHaveTextContent("Answer");
+  });
+
+  it("renders one replying indicator at the bottom of the message flow", () => {
+    const { container } = render(<ChatTimeline conversationId="c1" messages={[
+      { id: "stream_1", role: "assistant", text: "First reply", images: [], timestamp: 1, streaming: true },
+      { id: "stream_2", role: "assistant", text: "Latest reply", images: [], timestamp: 2, streaming: true },
+    ]} tools={[]} onBranch={vi.fn()} />);
+
+    expect(screen.getAllByLabelText("生成中")).toHaveLength(1);
+    const indicator = container.querySelector('[data-slot="replying-indicator"]');
+    expect(indicator).toHaveTextContent("正在回复");
+    expect(indicator?.previousElementSibling).toHaveTextContent("Latest reply");
   });
 
   it("renders consecutive tool calls without an outer run summary", () => {
@@ -116,6 +128,6 @@ describe("ChatTimeline", () => {
     expect(container.querySelectorAll('[data-slot="tool-call-row"]')).toHaveLength(3);
     expect(container.querySelector('[data-slot="tool-call-row"]')).not.toHaveClass("rounded-lg", "border");
     expect(container.querySelector('[data-slot="run-group-row"]')).not.toHaveClass("md:pl-10");
-    expect(container.querySelector('[data-slot="tool-call-row"] > button')).toHaveClass("min-h-10");
+    expect(container.querySelector('[data-slot="tool-call-row"] > button')).toHaveClass("min-h-10", "gap-2", "px-2.5");
   });
 });

@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { BootstrapData, ChatMessage, ConversationSettings, ConversationSummary, QueueBehavior, StreamEvent } from "../shared/types";
+import type { BootstrapData, ChatMessage, ConversationSettings, ConversationSummary, GlobalToolSettingsView, QueueBehavior, StreamEvent, ToolSettingsView } from "../shared/types";
 import {
   abortRun, branchConversation, compactConversation, connectEvents, createConversation, deleteConversation,
-  getBootstrap, getConversation, importConversation, listConversations, renameConversation, sendMessage, setModel, setThinking,
-  updateConversationSettings,
+  getBootstrap, getConversation, getGlobalToolSettings, getToolSettings, importConversation, listConversations, renameConversation, sendMessage, setModel, setThinking,
+  updateConversationSettings, updateConversationTool, updateGlobalTool,
 } from "./api";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { Composer } from "./components/Composer";
@@ -26,6 +26,10 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [toolSettings, setToolSettings] = useState<GlobalToolSettingsView>();
+  const [toolSettingsLoading, setToolSettingsLoading] = useState(false);
+  const [conversationToolSettings, setConversationToolSettings] = useState<ToolSettingsView>();
+  const [conversationToolSettingsLoading, setConversationToolSettingsLoading] = useState(false);
   const [conversationEntered, setConversationEntered] = useState(false);
   const initialized = useRef(false);
   const pendingEvents = useRef<StreamEvent[]>([]);
@@ -100,6 +104,26 @@ export default function App() {
       pendingEvents.current = [];
     };
   }, [snapshot?.conversation.id, snapshot?.stream.id]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    setToolSettings(undefined);
+    setToolSettingsLoading(true);
+    getGlobalToolSettings()
+      .then(setToolSettings)
+      .catch(report)
+      .finally(() => setToolSettingsLoading(false));
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!inspectorOpen || !snapshot) return;
+    setConversationToolSettings(undefined);
+    setConversationToolSettingsLoading(true);
+    getToolSettings(snapshot.conversation.id)
+      .then(setConversationToolSettings)
+      .catch(report)
+      .finally(() => setConversationToolSettingsLoading(false));
+  }, [inspectorOpen, snapshot?.conversation.id]);
 
   const selectedModel = useMemo(() => bootstrap?.models.find((model) => model.provider === snapshot?.model.provider && model.id === snapshot?.model.id), [bootstrap, snapshot?.model]);
   const guarded = async (action: () => Promise<unknown>, success?: string) => {
@@ -184,12 +208,28 @@ export default function App() {
       onOpenChange={setInspectorOpen}
       snapshot={snapshot}
       onCompact={async (instructions) => guarded(async () => { await compactConversation(snapshot.conversation.id, instructions); }, "已开始压缩")}
+      toolSettings={conversationToolSettings}
+      toolSettingsLoading={conversationToolSettingsLoading}
+      onSettings={async (settings) => {
+        try {
+          await updateConversationSettings(snapshot.conversation.id, settings);
+          dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) });
+        } catch (error) { report(error); throw error; }
+      }}
+      onConversationTool={async (name, enabled) => {
+        try { setConversationToolSettings(await updateConversationTool(snapshot.conversation.id, name, enabled)); }
+        catch (error) { report(error); throw error; }
+      }}
     />}
     <ConversationSettingsDialog
       open={settingsOpen}
       onOpenChange={setSettingsOpen}
-      snapshot={snapshot}
-      onSettings={async (patch: Partial<ConversationSettings>) => guarded(async () => { if (!snapshot) return; await updateConversationSettings(snapshot.conversation.id, patch); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
+      toolSettings={toolSettings}
+      toolSettingsLoading={toolSettingsLoading}
+      onGlobalTool={async (name, enabled) => {
+        try { setToolSettings(await updateGlobalTool(name, enabled)); }
+        catch (error) { report(error); throw error; }
+      }}
     />
     </SidebarInset>
   </>;

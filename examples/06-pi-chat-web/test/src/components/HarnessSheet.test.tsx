@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ConversationSnapshot } from "@shared/types";
+import type { ConversationSnapshot, ToolSettingsView } from "@shared/types";
 import { HarnessSheet } from "@/components/HarnessSheet";
 
 const snapshot: ConversationSnapshot = {
@@ -20,9 +20,16 @@ const snapshot: ConversationSnapshot = {
   diagnostics: [],
 };
 
+const toolSettings: ToolSettingsView = {
+  defaultEnabled: true,
+  tools: [{ name: "web_search", description: "Search the web", source: { kind: "extension", label: "pi-web-access" }, globalEnabled: true, conversationOverride: null, effectiveEnabled: true }],
+};
+
 describe("HarnessSheet", () => {
-  it("shows activity and context tabs without a settings tab", () => {
-    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} onCompact={vi.fn()} />);
+  const props = { open: true, onOpenChange: vi.fn(), snapshot, onCompact: vi.fn(), toolSettings, onSettings: vi.fn().mockResolvedValue(undefined), onConversationTool: vi.fn().mockResolvedValue(undefined) };
+
+  it("shows a clearly scoped session configuration tab", () => {
+    render(<HarnessSheet {...props} />);
     expect(screen.getByRole("complementary", { name: "会话明细" })).toHaveClass("md:w-[32rem]");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByText("会话明细")).toBeInTheDocument();
@@ -31,17 +38,17 @@ describe("HarnessSheet", () => {
     expect(screen.getByRole("region", { name: "模型信息" })).toHaveTextContent("思考强度 medium");
     expect(screen.getByRole("tab", { name: "活动" })).toHaveAttribute("data-state", "active");
     expect(screen.getByRole("tab", { name: "上下文" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "设置" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "本会话配置" })).toBeInTheDocument();
   });
 
   it("collapses its layout width when closed", () => {
-    render(<HarnessSheet open={false} onOpenChange={vi.fn()} snapshot={snapshot} onCompact={vi.fn()} />);
+    render(<HarnessSheet {...props} open={false} />);
     expect(screen.getByText("会话明细").closest("aside")).toHaveClass("w-0", "pointer-events-none");
   });
 
   it("opens the compaction dialog and submits instructions", async () => {
     const onCompact = vi.fn().mockResolvedValue(undefined);
-    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} onCompact={onCompact} />);
+    render(<HarnessSheet {...props} onCompact={onCompact} />);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "上下文" }), { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole("button", { name: /压缩上下文/ }));
     fireEvent.change(screen.getByLabelText("自定义摘要指令"), { target: { value: "保留路径" } });
@@ -52,10 +59,24 @@ describe("HarnessSheet", () => {
   it("copies the session ID without displaying it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
-    render(<HarnessSheet open onOpenChange={vi.fn()} snapshot={snapshot} onCompact={vi.fn()} />);
+    render(<HarnessSheet {...props} />);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "上下文" }), { button: 0, ctrlKey: false });
     expect(screen.queryByText(snapshot.stats.sessionId)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "复制 Session ID" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(snapshot.stats.sessionId));
+  });
+
+  it("updates only this conversation's settings and tool override", async () => {
+    const onSettings = vi.fn().mockResolvedValue(undefined);
+    const onConversationTool = vi.fn().mockResolvedValue(undefined);
+    render(<HarnessSheet {...props} onSettings={onSettings} onConversationTool={onConversationTool} />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "本会话配置" }), { button: 0, ctrlKey: false });
+    fireEvent.click(screen.getByRole("switch", { name: "自动压缩（本会话）" }));
+    fireEvent.click(screen.getByRole("switch", { name: "web_search（本会话）" }));
+    await waitFor(() => expect(onSettings).toHaveBeenCalledWith({ autoCompaction: false }));
+    await waitFor(() => expect(onConversationTool).toHaveBeenCalledWith("web_search", false));
+    expect(screen.getByText("只影响当前会话，不会修改左下角的全局设置。")).toBeInTheDocument();
+    expect(screen.getByText("已启用")).toBeInTheDocument();
+    expect(screen.queryByText("继承全局")).not.toBeInTheDocument();
   });
 });

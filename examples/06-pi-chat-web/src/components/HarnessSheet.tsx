@@ -12,19 +12,24 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { ActivityItem, ConversationSnapshot } from "../../shared/types";
+import type { ActivityItem, ConversationSettings, ConversationSnapshot, ToolSettingItem, ToolSettingsView } from "../../shared/types";
 
 interface Props {
   open: boolean;
   onOpenChange(open: boolean): void;
   snapshot: ConversationSnapshot;
   onCompact(instructions: string): Promise<void>;
+  toolSettings?: ToolSettingsView;
+  toolSettingsLoading?: boolean;
+  onSettings(settings: Partial<ConversationSettings>): Promise<void>;
+  onConversationTool(name: string, enabled: boolean | null): Promise<void>;
 }
 
-export function HarnessSheet({ open, onOpenChange, snapshot, onCompact }: Props) {
+export function HarnessSheet({ open, onOpenChange, snapshot, onCompact, toolSettings, toolSettingsLoading = false, onSettings, onConversationTool }: Props) {
   const [compactOpen, setCompactOpen] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [sessionCopied, setSessionCopied] = useState(false);
@@ -82,9 +87,10 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact }: Props)
         </section>
         <Tabs defaultValue="activity" className="min-h-0 flex-1 flex-col gap-0 overflow-hidden">
           <div className="shrink-0 border-b bg-background px-4 py-2">
-            <TabsList className="grid h-9 w-full grid-cols-2">
+            <TabsList className="grid h-9 w-full grid-cols-3">
               <OverviewTab value="activity" icon={ActivityIcon}>活动</OverviewTab>
               <OverviewTab value="context" icon={GaugeIcon}>上下文</OverviewTab>
+              <OverviewTab value="settings" icon={WrenchIcon}>本会话配置</OverviewTab>
             </TabsList>
           </div>
           <ScrollArea className="min-h-0 w-full flex-1 overflow-hidden">
@@ -136,6 +142,15 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact }: Props)
               </section>
               {snapshot.diagnostics.length > 0 && <Alert><AlertTitle>Runtime diagnostics</AlertTitle><AlertDescription className="whitespace-pre-wrap">{snapshot.diagnostics.join("\n")}</AlertDescription></Alert>}
             </TabsContent>
+            <TabsContent value="settings" className="mt-0 flex flex-col gap-4 p-4">
+              <SessionSettingsPanel
+                settings={snapshot.settings}
+                toolSettings={toolSettings}
+                loading={toolSettingsLoading}
+                onSettings={onSettings}
+                onConversationTool={onConversationTool}
+              />
+            </TabsContent>
           </ScrollArea>
         </Tabs>
       </div>
@@ -149,6 +164,78 @@ export function HarnessSheet({ open, onOpenChange, snapshot, onCompact }: Props)
       </DialogContent>
     </Dialog>
   </>;
+}
+
+function SessionSettingsPanel({
+  settings,
+  toolSettings,
+  loading,
+  onSettings,
+  onConversationTool,
+}: {
+  settings: ConversationSettings;
+  toolSettings?: ToolSettingsView;
+  loading: boolean;
+  onSettings(settings: Partial<ConversationSettings>): Promise<void>;
+  onConversationTool(name: string, enabled: boolean | null): Promise<void>;
+}) {
+  return <div className="space-y-5">
+    <section className="rounded-lg border bg-card p-3">
+      <SectionHeading title="会话策略" />
+      <p className="mt-1 text-xs text-muted-foreground">只影响当前会话，不会修改左下角的全局设置。</p>
+      <div className="mt-3 divide-y">
+        <SessionSwitch label="自动压缩" checked={settings.autoCompaction} onChange={(autoCompaction) => onSettings({ autoCompaction })} />
+        <SessionSwitch label="自动重试" checked={settings.autoRetry} onChange={(autoRetry) => onSettings({ autoRetry })} />
+      </div>
+    </section>
+    <section className="rounded-lg border bg-card p-3">
+      <SectionHeading title="工具覆盖" />
+      <p className="mt-1 text-xs text-muted-foreground">直接启用或禁用当前会话的工具，不会修改全局设置。</p>
+      {loading && !toolSettings
+        ? <p className="py-8 text-center text-xs text-muted-foreground">正在加载会话工具…</p>
+        : !toolSettings
+          ? <p className="py-8 text-center text-xs text-muted-foreground">会话工具配置加载失败。</p>
+          : <div className="mt-3 divide-y border-t">{toolSettings.tools.map((tool) => <ConversationToolRow key={tool.name} tool={tool} onChange={onConversationTool} />)}</div>}
+    </section>
+  </div>;
+}
+
+function SessionSwitch({ label, checked, onChange }: { label: string; checked: boolean; onChange(checked: boolean): Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  return <label className="flex items-center justify-between gap-3 py-3 text-xs">
+    <span>{label}</span>
+    <Switch
+      aria-label={`${label}（本会话）`}
+      checked={checked}
+      disabled={saving}
+      onCheckedChange={(next) => {
+        setSaving(true);
+        onChange(next).catch(() => undefined).finally(() => setSaving(false));
+      }}
+    />
+  </label>;
+}
+
+function ConversationToolRow({ tool, onChange }: { tool: ToolSettingItem; onChange(name: string, enabled: boolean | null): Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  return <div className="grid gap-2 py-3">
+    <div className="flex min-w-0 items-center justify-between gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2"><code className="text-xs font-medium">{tool.name}</code><span className="text-[11px] text-muted-foreground">{tool.effectiveEnabled ? "已启用" : "已禁用"}</span></div>
+        <p className="mt-1 truncate text-[11px] text-muted-foreground">{tool.description}</p>
+      </div>
+      <Switch
+        checked={tool.effectiveEnabled}
+        disabled={saving}
+        aria-label={`${tool.name}（本会话）`}
+        onCheckedChange={(enabled) => {
+          setSaving(true);
+          onChange(tool.name, enabled).catch(() => undefined).finally(() => setSaving(false));
+        }}
+      />
+    </div>
+    <p className="text-[11px] text-muted-foreground">全局：{tool.globalEnabled ? "已启用" : "已禁用"} · 当前生效：{tool.effectiveEnabled ? "已启用" : "已禁用"}</p>
+  </div>;
 }
 
 function OverviewTab({ value, icon: Icon, children }: { value: string; icon: typeof ActivityIcon; children: string }) {

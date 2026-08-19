@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { File as NodeFile } from "node:buffer";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,10 @@ afterEach(async () => {
 async function service(ttlMs = 60_000): Promise<ConversationService> {
   const root = await mkdtemp(join(tmpdir(), "pi-chat-test-"));
   roots.push(root);
+  return serviceAt(root, ttlMs);
+}
+
+async function serviceAt(root: string, ttlMs = 60_000): Promise<ConversationService> {
   const runtime = await ModelRuntime.create({ allowModelNetwork: false });
   await runtime.setRuntimeApiKey("openai", "test-key");
   return ConversationService.create({ dataDir: root, ttlMs, modelRuntime: runtime });
@@ -87,6 +91,143 @@ describe("ConversationService", () => {
     const restored = await conversations.snapshot(id);
     expect(restored.conversation.title).toBe("Updated metadata");
     expect(restored.settings).toMatchObject({ autoCompaction: false, autoRetry: false });
+    await conversations.shutdown();
+  });
+
+  it("loads only application extensions and enables their registered tools by default", async () => {
+    const conversations = await service();
+    const created = await conversations.createConversation();
+    const expected = ["fetch_content", "get_search_content", "source_check", "web_search"];
+    const initial = await conversations.getToolSettings(created.conversation.id);
+
+    expect(initial.tools.filter((tool) => expected.includes(tool.name))).toEqual(
+      expect.arrayContaining(expected.map((name) => expect.objectContaining({
+        name,
+        source: expect.objectContaining({ kind: "extension", label: "pi-web-access" }),
+        globalEnabled: true,
+        conversationOverride: null,
+        effectiveEnabled: true,
+      }))),
+    );
+    expect(activeConversation(conversations, created.conversation.id).runtime.session.getActiveToolNames()).toEqual(
+      expect.arrayContaining(expected),
+    );
+
+    const extensionDir = join(created.conversation.workspace, ".pi", "extensions");
+    await mkdir(extensionDir, { recursive: true });
+    await writeFile(join(extensionDir, "project-only.ts"), `
+      export default function (pi) {
+        pi.registerTool({
+          name: "project_only_tool",
+          description: "must not load",
+          parameters: { type: "object", properties: {} },
+          execute: async () => ({ content: [{ type: "text", text: "unexpected" }] }),
+        });
+      }
+    `, "utf8");
+    await conversations.release(created.conversation.id);
+
+    expect((await conversations.getToolSettings(created.conversation.id)).tools.map((tool) => tool.name)).not.toContain("project_only_tool");
+    await conversations.shutdown();
+  });
+
+  it("applies global defaults and conversation overrides to active tools", async () => {
+    const conversations = await service();
+    const first = await conversations.createConversation();
+    const second = await conversations.createConversation();
+
+    await conversations.updateGlobalTool("web_search", false);
+    expect(activeConversation(conversations, first.conversation.id).runtime.session.getActiveToolNames()).not.toContain("web_search");
+    expect(activeConversation(conversations, second.conversation.id).runtime.session.getActiveToolNames()).not.toContain("web_search");
+
+    let view = await conversations.updateConversationTool(first.conversation.id, "web_search", true);
+    expect(view.tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      globalEnabled: false,
+      conversationOverride: true,
+      effectiveEnabled: true,
+    });
+    expect(activeConversation(conversations, first.conversation.id).runtime.session.getActiveToolNames()).toContain("web_search");
+    expect(activeConversation(conversations, second.conversation.id).runtime.session.getActiveToolNames()).not.toContain("web_search");
+
+    view = await conversations.updateConversationTool(first.conversation.id, "web_search", null);
+    expect(view.tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      conversationOverride: null,
+      effectiveEnabled: false,
+    });
+
+    await conversations.updateGlobalTool("web_search", true);
+    view = await conversations.updateConversationTool(first.conversation.id, "web_search", false);
+    expect(view.tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      globalEnabled: true,
+      conversationOverride: false,
+      effectiveEnabled: false,
+    });
+
+    await expect(conversations.updateConversationTool(first.conversation.id, "missing_tool", true)).rejects.toMatchObject({ status: 404 });
+    await conversations.shutdown();
+  });
+
+  it("persists global and conversation tool settings across service restarts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-chat-test-"));
+    roots.push(root);
+    const firstService = await serviceAt(root);
+    const created = await firstService.createConversation();
+    await firstService.updateGlobalTool("web_search", false);
+    await firstService.updateConversationTool(created.conversation.id, "web_search", true);
+    await firstService.shutdown();
+
+    const restoredService = await serviceAt(root);
+    const restored = await restoredService.getToolSettings(created.conversation.id);
+    expect(restored.tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      globalEnabled: false,
+      conversationOverride: true,
+      effectiveEnabled: true,
+    });
+    expect(activeConversation(restoredService, created.conversation.id).runtime.session.getActiveToolNames()).toContain("web_search");
+    await restoredService.shutdown();
+  });
+
+  it("updates global tool settings without an explicit conversation context", async () => {
+    const conversations = await service();
+    const created = await conversations.createConversation();
+    await conversations.release(created.conversation.id);
+
+    const view = await conversations.updateGlobalTool("web_search", false);
+
+    expect(view.tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      enabled: false,
+    });
+    expect(activeConversation(conversations, created.conversation.id).runtime.session.getActiveToolNames()).not.toContain("web_search");
+    await conversations.shutdown();
+  });
+
+  it("copies conversation tool overrides into branches", async () => {
+    const conversations = await service();
+    const source = await conversations.createConversation();
+    await conversations.updateConversationTool(source.conversation.id, "web_search", false);
+    const active = activeConversation(conversations, source.conversation.id);
+    const entryId = active.runtime.session.sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "Create a branch" }],
+      timestamp: Date.now(),
+    } as never);
+    active.runtime.session.sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "Ready to branch." }],
+      api: "openai-responses",
+      provider: "openai",
+      model: "test-model",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: "stop",
+      timestamp: Date.now() + 1,
+    } as never);
+    vi.spyOn(active.runtime.session, "followUp").mockResolvedValue(undefined);
+
+    const branched = await conversations.branch(source.conversation.id, entryId, "Continue without search");
+    expect((await conversations.getToolSettings(branched.conversation.id)).tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      conversationOverride: false,
+      effectiveEnabled: false,
+    });
     await conversations.shutdown();
   });
 
@@ -226,6 +367,7 @@ describe("ConversationService", () => {
     } as never);
 
     const exported = await conversations.export(source.conversation.id, "jsonl");
+    await conversations.updateGlobalTool("web_search", false);
     const imported = await conversations.importConversation(new NodeFile([exported.content], "backup.jsonl", { type: "application/x-ndjson" }) as unknown as File);
 
     expect(imported.conversation).toMatchObject({ title: "Imported project" });
@@ -233,6 +375,11 @@ describe("ConversationService", () => {
     expect(imported.conversation.workspace).not.toBe(source.conversation.workspace);
     expect(imported.messages.map((message) => message.text)).toEqual(["Inspect the project", "I inspected it."]);
     expect(imported.tools).toMatchObject([{ id: "tool-1", name: "read", status: "success", result: "# Pi Chat Workspace" }]);
+    expect((await conversations.getToolSettings(imported.conversation.id)).tools.find((tool) => tool.name === "web_search")).toMatchObject({
+      globalEnabled: false,
+      conversationOverride: null,
+      effectiveEnabled: false,
+    });
     expect(await conversations.list()).toHaveLength(2);
     expect((await conversations.snapshot(source.conversation.id)).messages).toHaveLength(2);
     await conversations.shutdown();
@@ -261,6 +408,7 @@ function activeConversation(conversations: ConversationService, id: string) {
     prompt(text: string, options: unknown): Promise<void>;
     steer(text: string, images: unknown[]): Promise<void>;
     followUp(text: string, images: unknown[]): Promise<void>;
+    getActiveToolNames(): string[];
     setSessionName(name: string): void;
     sessionManager: { appendMessage(message: never): string; getSessionName(): string | undefined };
   } } }> };

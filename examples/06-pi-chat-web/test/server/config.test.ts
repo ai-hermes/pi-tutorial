@@ -12,6 +12,7 @@ describe("managed paths", () => {
 
   it("derives all stores from an explicit root", () => {
     const paths = resolvePaths("/tmp/pi-chat-custom");
+    expect(paths.appSettings).toBe("/tmp/pi-chat-custom/app-settings.json");
     expect(paths.sessions).toBe("/tmp/pi-chat-custom/sessions");
     expect(paths.workspaces).toBe("/tmp/pi-chat-custom/workspaces");
   });

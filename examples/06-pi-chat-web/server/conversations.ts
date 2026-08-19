@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
+  type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
@@ -21,10 +22,13 @@ import type {
   ConversationSettings,
   ConversationSnapshot,
   ConversationSummary,
+  GlobalToolSettingsView,
   QueueBehavior,
   RuntimeStatus,
   SessionStats,
   ThinkingLevel,
+  ToolSettingItem,
+  ToolSettingsView,
   ToolRun,
 } from "@shared/types";
 import { attachmentPrompt, safeAttachmentName, saveAttachments, validateAttachments, validateImages, visualAttachments } from "@server/attachments";
@@ -34,8 +38,14 @@ import { EventBuffer } from "@server/events";
 import { projectEntry, projectTranscript } from "@server/projection";
 import { readRepositoryInfo } from "@server/repository";
 import { MAX_IMPORT_BYTES, validateSessionJsonl } from "@server/session-files";
+import { PI_EXTENSION_PATHS } from "@server/pi-extensions";
+import {
+  type ConversationToolSettings,
+  type GlobalToolSettings,
+  ToolSettingsStore,
+  conversationToolSettings,
+} from "@server/tool-settings";
 
-const FULL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const SYSTEM_PROMPT = `You are Pi Chat, a helpful, precise coding assistant running in a dedicated conversation workspace.
 
 You can inspect files, run commands, and edit the workspace. Explain important actions and summarize concrete results. Prefer small, verifiable changes. Never claim a command or edit succeeded unless its tool result confirms it.
@@ -51,6 +61,7 @@ interface ConversationRecord {
   updatedAt: string;
   parentId?: string;
   settings?: ConversationSettings;
+  toolSettings?: ConversationToolSettings;
 }
 
 interface ActiveConversation {
@@ -71,6 +82,7 @@ export class ConversationService {
   private readonly active = new Map<string, ActiveConversation>();
   private readonly loading = new Map<string, Promise<ActiveConversation>>();
   private readonly channels = new Map<string, EventBuffer>();
+  private readonly toolSettingsStore: ToolSettingsStore;
 
   private constructor(
     private readonly modelRuntime: ModelRuntime,
@@ -79,6 +91,7 @@ export class ConversationService {
   ) {
     this.paths = paths;
     this.ttlMs = ttl;
+    this.toolSettingsStore = new ToolSettingsStore(paths.appSettings);
   }
 
   static async create(options: { dataDir?: string; ttlMs?: number; modelRuntime?: ModelRuntime } = {}): Promise<ConversationService> {
@@ -124,6 +137,7 @@ export class ConversationService {
       createdAt: now,
       updatedAt: now,
       settings: defaultSettings(),
+      toolSettings: { overrides: {} },
     };
     await this.writeRecord(record);
     await this.load(record, manager);
@@ -165,6 +179,7 @@ export class ConversationService {
         createdAt: now,
         updatedAt: now,
         settings: defaultSettings(),
+        toolSettings: { overrides: {} },
       };
       await this.writeRecord(record);
       await this.load(record, manager);
@@ -352,6 +367,58 @@ export class ConversationService {
     return settings;
   }
 
+  async getToolSettings(id: string): Promise<ToolSettingsView> {
+    const [record, active, global] = await Promise.all([
+      this.getRecord(id),
+      this.ensureRuntime(id),
+      this.toolSettingsStore.read(),
+    ]);
+    return toolSettingsView(active.runtime.session, record.toolSettings, global);
+  }
+
+  async getGlobalToolSettings(): Promise<GlobalToolSettingsView> {
+    const context = await this.globalToolSettingsContext();
+    return globalToolSettingsView(context.runtime.session, await this.toolSettingsStore.read());
+  }
+
+  async updateGlobalTool(name: string, enabled: boolean): Promise<GlobalToolSettingsView> {
+    if (typeof name !== "string" || !name.trim()) throw new ConversationError("工具名称无效。");
+    if (typeof enabled !== "boolean") throw new ConversationError("enabled 必须是布尔值。");
+    const context = await this.globalToolSettingsContext();
+    assertRegisteredTool(context.runtime.session, name);
+
+    const global = await this.toolSettingsStore.update(name, enabled);
+    await Promise.all([...this.active.values()].map(async (active) => {
+      const record = await this.getRecord(active.id);
+      applyToolSettings(active.runtime.session, record.toolSettings, global);
+      active.events.publish("settings.changed", this.settings(active.runtime.session));
+      active.events.publish("tools.changed", {});
+      this.touch(active);
+    }));
+
+    return globalToolSettingsView(context.runtime.session, global);
+  }
+
+  async updateConversationTool(id: string, name: string, enabled: boolean | null): Promise<ToolSettingsView> {
+    if (typeof name !== "string" || !name.trim()) throw new ConversationError("工具名称无效。");
+    if (enabled !== null && typeof enabled !== "boolean") throw new ConversationError("enabled 必须是布尔值或 null。");
+    const active = await this.ensureRuntime(id);
+    assertRegisteredTool(active.runtime.session, name);
+    const record = await this.updateRecord(id, (current) => {
+      const settings = conversationToolSettings(current.toolSettings);
+      if (enabled === null) delete settings.overrides[name];
+      else settings.overrides[name] = enabled;
+      current.toolSettings = settings;
+      current.updatedAt = new Date().toISOString();
+    });
+    const global = await this.toolSettingsStore.read();
+    applyToolSettings(active.runtime.session, record.toolSettings, global);
+    active.events.publish("settings.changed", this.settings(active.runtime.session));
+    active.events.publish("tools.changed", {});
+    this.touch(active);
+    return toolSettingsView(active.runtime.session, record.toolSettings, global);
+  }
+
   async branch(id: string, entryId: string, text: string): Promise<ConversationSnapshot> {
     const active = await this.ensureIdle(id);
     const source = await this.getRecord(id);
@@ -371,6 +438,7 @@ export class ConversationService {
       updatedAt: new Date().toISOString(),
       parentId: id,
       settings: this.settings(active.runtime.session),
+      toolSettings: structuredClone(conversationToolSettings(source.toolSettings)),
     };
     await this.writeRecord(record);
     this.active.delete(id);
@@ -460,6 +528,14 @@ export class ConversationService {
     return active;
   }
 
+  private async globalToolSettingsContext(): Promise<ActiveConversation> {
+    const active = this.active.values().next().value as ActiveConversation | undefined;
+    if (active) return active;
+    const record = (await this.readRecords())[0];
+    if (!record) throw new ConversationError("请先创建一个会话。", 409);
+    return this.ensureRuntime(record.id);
+  }
+
   private isBusy(active: ActiveConversation): boolean {
     return active.runtime.session.agent.state.isStreaming || active.status === "running" || active.status === "stopping" || active.status === "compacting";
   }
@@ -491,15 +567,20 @@ export class ConversationService {
         agentDir: getAgentDir(),
         settingsManager,
         modelRuntime: this.modelRuntime,
-        resourceLoaderOptions: { systemPromptOverride: () => SYSTEM_PROMPT },
+        resourceLoaderOptions: {
+          noExtensions: true,
+          additionalExtensionPaths: PI_EXTENSION_PATHS,
+          systemPromptOverride: () => SYSTEM_PROMPT,
+        },
       });
+      const created = await createAgentSessionFromServices({
+        services,
+        sessionManager: nextManager,
+        sessionStartEvent,
+      });
+      applyToolSettings(created.session, record.toolSettings, await this.toolSettingsStore.read());
       return {
-        ...(await createAgentSessionFromServices({
-          services,
-          sessionManager: nextManager,
-          sessionStartEvent,
-          tools: FULL_TOOLS,
-        })),
+        ...created,
         services,
         diagnostics: services.diagnostics,
       };
@@ -758,6 +839,83 @@ function normalizeStats(stats: ReturnType<ActiveConversation["runtime"]["session
     cost: stats.cost,
     ...(context ? { contextUsage: { tokens: context.tokens ?? 0, contextWindow: context.contextWindow, percent: context.percent ?? 0 } } : {}),
   };
+}
+
+function applyToolSettings(
+  session: AgentSession,
+  conversation: ConversationToolSettings | undefined,
+  global: GlobalToolSettings,
+): void {
+  const overrides = conversationToolSettings(conversation).overrides;
+  session.setActiveToolsByName(
+    session.getAllTools()
+      .filter((tool) => overrides[tool.name] ?? global.overrides[tool.name] ?? global.defaultEnabled)
+      .map((tool) => tool.name),
+  );
+}
+
+function toolSettingsView(
+  session: AgentSession,
+  conversation: ConversationToolSettings | undefined,
+  global: GlobalToolSettings,
+): ToolSettingsView {
+  const overrides = conversationToolSettings(conversation).overrides;
+  return {
+    defaultEnabled: true,
+    tools: session.getAllTools()
+      .map((tool): ToolSettingItem => {
+        const globalEnabled = global.overrides[tool.name] ?? global.defaultEnabled;
+        const conversationOverride = overrides[tool.name] ?? null;
+        return {
+          name: tool.name,
+          description: tool.description,
+          source: toolSource(tool.sourceInfo),
+          globalEnabled,
+          conversationOverride,
+          effectiveEnabled: conversationOverride ?? globalEnabled,
+        };
+      })
+      .sort((left, right) => left.source.label.localeCompare(right.source.label) || left.name.localeCompare(right.name)),
+  };
+}
+
+function globalToolSettingsView(session: AgentSession, global: GlobalToolSettings): GlobalToolSettingsView {
+  return {
+    defaultEnabled: true,
+    tools: session.getAllTools()
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        source: toolSource(tool.sourceInfo),
+        enabled: global.overrides[tool.name] ?? global.defaultEnabled,
+      }))
+      .sort((left, right) => left.source.label.localeCompare(right.source.label) || left.name.localeCompare(right.name)),
+  };
+}
+
+function assertRegisteredTool(session: AgentSession, name: string): void {
+  if (!session.getAllTools().some((tool) => tool.name === name)) {
+    throw new ConversationError(`工具不存在或尚未注册：${name}`, 404);
+  }
+}
+
+function toolSource(sourceInfo: { source: string; path: string }): ToolSettingItem["source"] {
+  if (sourceInfo.source === "builtin" || sourceInfo.path.startsWith("<builtin:")) {
+    return { kind: "builtin", label: "内置工具" };
+  }
+  return {
+    kind: "extension",
+    label: packageNameFromPath(sourceInfo.path) ?? sourceInfo.source ?? "Extension",
+    path: sourceInfo.path,
+  };
+}
+
+function packageNameFromPath(path: string): string | undefined {
+  const marker = `${path.includes("\\") ? "\\" : "/"}node_modules${path.includes("\\") ? "\\" : "/"}`;
+  const tail = path.split(marker).at(-1);
+  if (!tail || tail === path) return undefined;
+  const parts = tail.split(/[\\/]/);
+  return parts[0]?.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 }
 
 function defaultSettings(): ConversationSettings {

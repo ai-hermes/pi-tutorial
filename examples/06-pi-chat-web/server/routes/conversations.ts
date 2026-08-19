@@ -66,6 +66,13 @@ export function createConversationRoutes(service: ConversationService): Hono {
     const body = await jsonBody<Partial<ConversationSettings>>(context.req.raw);
     return context.json(await service.updateSettings(context.req.param("id"), body));
   });
+  routes.get("/:id/tools", async (context) => context.json(await service.getToolSettings(context.req.param("id"))));
+  routes.patch("/:id/tools", async (context) => {
+    const body = await jsonBody<{ name?: unknown; enabled?: unknown }>(context.req.raw);
+    if (typeof body.name !== "string") throw new ConversationError("工具名称无效。");
+    if (body.enabled !== null && typeof body.enabled !== "boolean") throw new ConversationError("enabled 必须是布尔值或 null。");
+    return context.json(await service.updateConversationTool(context.req.param("id"), body.name, body.enabled));
+  });
   routes.post("/:id/branches", async (context) => {
     const body = await jsonBody<{ entryId?: unknown; text?: unknown }>(context.req.raw);
     if (typeof body.entryId !== "string" || typeof body.text !== "string") throw new ConversationError("分支参数无效。");

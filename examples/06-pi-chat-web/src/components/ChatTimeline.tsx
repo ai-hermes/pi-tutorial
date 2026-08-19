@@ -90,6 +90,7 @@ export function ChatTimeline({ conversationId, showWelcome = false, messages, to
               : item.kind === "thinking"
                 ? <ThinkingNode key={item.thinking.id} thinking={item.thinking} />
                 : <MessageRow key={item.message.id} message={item.message} now={now} onBranch={() => { setBranchMessage(item.message); setBranchText(item.message.text); }} />)}
+            {messages.some((message) => message.role === "assistant" && message.streaming) && <ReplyingIndicator />}
           </div> : null}
         </div>
       </ScrollArea>
@@ -173,8 +174,6 @@ function MessageRow({ message, now, onBranch }: { message: ChatMessage; now: num
         a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer" className="text-link underline underline-offset-4">{children}</a>,
       }}>{message.text}</ReactMarkdown>}
       {message.pending && !message.text && <p className="text-sm text-muted-foreground">正在发送图片…</p>}
-      {message.pending && <span className="mt-1 block text-[var(--type-meta)] leading-[var(--leading-meta)] text-muted-foreground">发送中</span>}
-      {message.streaming && <span className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground" aria-label="生成中"><LoaderCircleIcon className="size-3 animate-spin" />正在回复</span>}
       {message.error && <p className="mt-2 text-sm text-destructive [overflow-wrap:anywhere]">{message.error}</p>}
       </div>
       <div data-slot="message-meta" className={cn("flex min-h-5 items-center gap-1 text-xs text-muted-foreground md:absolute md:top-full md:z-10 md:w-max md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100", isUser ? "justify-end md:right-0" : "justify-start md:left-0")}>
@@ -186,6 +185,12 @@ function MessageRow({ message, now, onBranch }: { message: ChatMessage; now: num
       </div>
     </div>
   </article>;
+}
+
+function ReplyingIndicator() {
+  return <div data-slot="replying-indicator" className="flex min-h-8 items-center gap-1.5 px-2.5 py-1 text-xs text-muted-foreground" aria-label="生成中">
+    <LoaderCircleIcon className="size-3 animate-spin" />正在回复
+  </div>;
 }
 
 function ThinkingNode({ thinking }: { thinking: ThinkingBlock }) {

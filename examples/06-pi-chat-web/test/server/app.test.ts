@@ -46,3 +46,43 @@ describe("conversation import route", () => {
     expect(importConversation).not.toHaveBeenCalled();
   });
 });
+
+describe("tool settings routes", () => {
+  it("returns and updates global and conversation tool settings", async () => {
+    const view = { defaultEnabled: true, tools: [] };
+    const getToolSettings = vi.fn().mockResolvedValue(view);
+    const getGlobalToolSettings = vi.fn().mockResolvedValue(view);
+    const updateGlobalTool = vi.fn().mockResolvedValue(view);
+    const updateConversationTool = vi.fn().mockResolvedValue(view);
+    const app = createApp({ getToolSettings, getGlobalToolSettings, updateGlobalTool, updateConversationTool } as unknown as ConversationService);
+
+    expect((await app.request("/api/conversations/c1/tools")).status).toBe(200);
+    expect((await app.request("/api/settings/tools")).status).toBe(200);
+    const globalResponse = await app.request("/api/settings/tools", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "web_search", enabled: false }),
+    });
+    const conversationResponse = await app.request("/api/conversations/c1/tools", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "web_search", enabled: null }),
+    });
+
+    expect(globalResponse.status).toBe(200);
+    expect(conversationResponse.status).toBe(200);
+    expect(getGlobalToolSettings).toHaveBeenCalledOnce();
+    expect(updateGlobalTool).toHaveBeenCalledWith("web_search", false);
+    expect(updateConversationTool).toHaveBeenCalledWith("c1", "web_search", null);
+  });
+
+  it("rejects malformed tool settings requests", async () => {
+    const app = createApp({} as ConversationService);
+    const response = await app.request("/api/conversations/c1/tools", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "web_search", enabled: "yes" }),
+    });
+    expect(response.status).toBe(400);
+  });
+});

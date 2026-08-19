@@ -64,6 +64,36 @@ export interface ConversationSettings {
   followUpMode: "all" | "one-at-a-time";
 }
 
+export interface ToolSettingItem {
+  name: string;
+  description: string;
+  source: {
+    kind: "builtin" | "extension";
+    label: string;
+    path?: string;
+  };
+  globalEnabled: boolean;
+  conversationOverride: boolean | null;
+  effectiveEnabled: boolean;
+}
+
+export interface ToolSettingsView {
+  defaultEnabled: true;
+  tools: ToolSettingItem[];
+}
+
+export interface GlobalToolSettingItem {
+  name: string;
+  description: string;
+  source: ToolSettingItem["source"];
+  enabled: boolean;
+}
+
+export interface GlobalToolSettingsView {
+  defaultEnabled: true;
+  tools: GlobalToolSettingItem[];
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;

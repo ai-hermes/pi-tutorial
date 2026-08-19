@@ -18,7 +18,7 @@ export function ToolCallCard({ tool }: { tool: ToolRun }) {
   const StatusIcon = tool.status === "running" ? LoaderCircleIcon : tool.status === "error" ? CircleXIcon : CircleCheckIcon;
 
   return <Collapsible data-slot="tool-call-row" className="group/tool min-w-0 bg-card">
-    <CollapsibleTrigger className="flex min-h-10 w-full items-center gap-2.5 px-3 py-1.5 text-left focus-visible:outline-none sm:px-3.5">
+    <CollapsibleTrigger className="flex min-h-10 w-full items-center gap-2 px-2.5 py-1.5 text-left focus-visible:outline-none">
       <ToolIcon className={cn("size-3.5 shrink-0 text-muted-foreground", tool.status === "error" && "text-destructive")} />
       <span className="shrink-0 font-mono text-xs font-medium">{tool.name}</span>
       <Badge variant="ghost" className={cn("shrink-0 font-normal", tool.status === "error" ? "text-destructive" : tool.status === "success" ? "text-success" : "text-foreground")}>
@@ -30,7 +30,7 @@ export function ToolCallCard({ tool }: { tool: ToolRun }) {
       <ChevronDownIcon className="hidden size-3.5 shrink-0 text-muted-foreground transition-colors group-hover/tool:text-foreground group-data-[state=open]/tool:block" />
     </CollapsibleTrigger>
     <CollapsibleContent>
-      <div className="flex flex-col gap-2.5 px-3 py-1.5 text-xs sm:px-3.5 sm:pl-9">
+      <div className="flex flex-col gap-2.5 px-2.5 py-1.5 pl-8 text-xs">
         <RawSection title="参数" output={JSON.stringify(tool.args, null, 2)} />
         {(details?.patch || details?.diff) && output
           ? <RawSection title="变更" output={output} />

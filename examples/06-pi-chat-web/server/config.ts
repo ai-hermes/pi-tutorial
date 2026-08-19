@@ -4,6 +4,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface AppPaths {
   root: string;
+  appSettings: string;
   records: string;
   sessions: string;
   workspaces: string;
@@ -14,6 +15,7 @@ export function resolvePaths(root = process.env.PI_CHAT_DATA_DIR?.trim()): AppPa
   const resolvedRoot = resolve(root || join(getAgentDir(), "web-chat"));
   return {
     root: resolvedRoot,
+    appSettings: join(resolvedRoot, "app-settings.json"),
     records: join(resolvedRoot, "records"),
     sessions: join(resolvedRoot, "sessions"),
     workspaces: join(resolvedRoot, "workspaces"),
