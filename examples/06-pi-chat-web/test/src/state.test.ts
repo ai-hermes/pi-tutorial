@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationSnapshot, StreamEvent } from "../shared/types";
-import { snapshotReducer } from "./state";
+import type { ConversationSnapshot, StreamEvent } from "@shared/types";
+import { snapshotReducer } from "@/state";
 
 const snapshot: ConversationSnapshot = {
   conversation: { id: "c1", title: "Chat", createdAt: "2026-01-01", updatedAt: "2026-01-01", messageCount: 0, workspace: "/tmp/chat", status: "ready" },
-  messages: [], tools: [], model: { provider: "test", id: "model" }, thinkingLevel: "off", availableThinkingLevels: ["off"],
+  messages: [], tools: [], thinking: [], model: { provider: "test", id: "model" }, thinkingLevel: "off", availableThinkingLevels: ["off"],
   status: "ready", queue: { steering: [], followUp: [] }, settings: { autoCompaction: true, autoRetry: true, steeringMode: "all", followUpMode: "all" },
   stats: { sessionId: "c1", userMessages: 0, assistantMessages: 0, toolCalls: 0, toolResults: 0, totalMessages: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0 },
   stream: { id: "s1", lastEventId: 0 }, activity: [], diagnostics: [],

@@ -1,9 +1,12 @@
 packages:
   - "data-agent/packages/*"
-  - "examples/07-data-agent-web"
-  - "examples/09-pi-chat-web"
+  - "examples/08-data-agent-web"
+  - "examples/06-pi-chat-web"
 
 allowBuilds:
-  '@google/genai': set this to true or false
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
+  '@google/genai': true
+  esbuild: true
+  protobufjs: true
+
+minimumReleaseAgeExclude:
+  - pi-web-access@0.24.0

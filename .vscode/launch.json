@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Pi Chat: Hono Server",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["server:dev"],
+      "cwd": "${workspaceFolder}/examples/06-pi-chat-web",
+      "autoAttachChildProcesses": true,
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
+    },
+    {
+      "name": "Pi Chat: Full Stack",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "cwd": "${workspaceFolder}/examples/06-pi-chat-web",
+      "autoAttachChildProcesses": true,
+      "console": "internalConsole",
+      "serverReadyAction": {
+        "pattern": "Local:\\s+(http://127\\.0\\.0\\.1:4327/)",
+        "uriFormat": "%s",
+        "action": "debugWithChrome"
+      },
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
+    },
+    {
+      "name": "Pi Chat: Browser",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:4327",
+      "webRoot": "${workspaceFolder}/examples/06-pi-chat-web/src",
+      "sourceMaps": true
+    },
+    {
+      "name": "Pi Chat: Current Test",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["exec", "vitest", "run", "${file}"],
+      "cwd": "${workspaceFolder}/examples/06-pi-chat-web",
+      "autoAttachChildProcesses": true,
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"]
+    }
+  ]
+}

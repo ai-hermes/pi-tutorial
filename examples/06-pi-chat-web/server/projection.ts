@@ -1,4 +1,4 @@
-import type { ChatMessage, ToolRun } from "../shared/types";
+import type { ActivityItem, ChatMessage, ThinkingBlock, ToolRun } from "@shared/types";
 
 interface EntryLike {
   id: string;
@@ -21,6 +21,7 @@ interface MessageLike {
 interface ContentLike {
   type: string;
   text?: string;
+  thinking?: string;
   data?: string;
   mimeType?: string;
   id?: string;
@@ -28,8 +29,9 @@ interface ContentLike {
   arguments?: Record<string, unknown>;
 }
 
-export function projectTranscript(entries: readonly unknown[]): { messages: ChatMessage[]; tools: ToolRun[] } {
+export function projectTranscript(entries: readonly unknown[]): { messages: ChatMessage[]; tools: ToolRun[]; thinking: ThinkingBlock[]; activity: ActivityItem[] } {
   const messages: ChatMessage[] = [];
+  const thinking: ThinkingBlock[] = [];
   const tools = new Map<string, ToolRun>();
   let previousTimestamp = 0;
 
@@ -58,6 +60,8 @@ export function projectTranscript(entries: readonly unknown[]): { messages: Chat
         });
       }
       if (message.role === "assistant") {
+        const thought = content.filter((part) => part.type === "thinking").map((part) => part.thinking ?? "").join("");
+        if (thought) thinking.push({ id: `${entry.id}:thinking`, text: thought, timestamp });
         for (const part of content.filter((item) => item.type === "toolCall")) {
           if (!part.id || !part.name) continue;
           tools.set(part.id, {
@@ -88,7 +92,24 @@ export function projectTranscript(entries: readonly unknown[]): { messages: Chat
     }
   }
 
-  return { messages, tools: [...tools.values()].sort((a, b) => a.startedAt - b.startedAt) };
+  const projectedTools = [...tools.values()].sort((a, b) => a.startedAt - b.startedAt);
+  const activity = [
+    ...messages.map((message) => ({
+      type: message.role === "user" ? "message.added" : "message.completed",
+      timestamp: new Date(message.timestamp).toISOString(),
+      summary: message.role === "user" ? "用户消息" : "回复生成完成",
+      sourceId: message.id,
+    })),
+    ...projectedTools.flatMap((tool) => [
+      { type: "tool.started", timestamp: new Date(tool.startedAt).toISOString(), summary: `${tool.name} · started`, sourceId: tool.id },
+      ...(tool.endedAt ? [{ type: "tool.completed", timestamp: new Date(tool.endedAt).toISOString(), summary: `${tool.name} · ${tool.status}`, sourceId: tool.id }] : []),
+    ]),
+  ]
+    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
+    .slice(0, 100)
+    .map((item, index) => ({ ...item, id: -index - 1 }));
+
+  return { messages, tools: projectedTools, thinking, activity };
 }
 
 export function projectEntry(raw: unknown): ChatMessage | undefined {

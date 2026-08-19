@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ActivityItem, StreamEvent } from "../shared/types";
+import type { ActivityItem, StreamEvent } from "@shared/types";
 
 type Listener = (event: StreamEvent) => void;
 
@@ -45,6 +45,7 @@ export class EventBuffer {
       type: event.type,
       timestamp: event.timestamp,
       summary: summarizeEvent(event),
+      sourceId: activitySourceId(event),
     }));
   }
 }
@@ -57,4 +58,16 @@ function summarizeEvent(event: StreamEvent): string {
   if (event.type === "queue.updated") return "消息队列已更新";
   if (event.type === "runtime.status") return `运行状态：${String(payload.status ?? "unknown")}`;
   return event.type;
+}
+
+function activitySourceId(event: StreamEvent): string | undefined {
+  const payload = event.payload as Record<string, unknown>;
+  if (event.type === "message.added" || event.type === "message.completed") {
+    const message = payload.message as { id?: unknown } | undefined;
+    return typeof message?.id === "string" ? message.id : undefined;
+  }
+  if (event.type === "tool.started" || event.type === "tool.completed") {
+    return typeof payload.id === "string" ? payload.id : undefined;
+  }
+  return undefined;
 }

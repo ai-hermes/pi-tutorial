@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertInside, resolvePaths } from "./config";
+import { assertInside, resolvePaths } from "@server/config";
 
 describe("managed paths", () => {
   it("accepts descendants and rejects the root or traversal", () => {
@@ -12,6 +12,7 @@ describe("managed paths", () => {
 
   it("derives all stores from an explicit root", () => {
     const paths = resolvePaths("/tmp/pi-chat-custom");
+    expect(paths.appSettings).toBe("/tmp/pi-chat-custom/app-settings.json");
     expect(paths.sessions).toBe("/tmp/pi-chat-custom/sessions");
     expect(paths.workspaces).toBe("/tmp/pi-chat-custom/workspaces");
   });

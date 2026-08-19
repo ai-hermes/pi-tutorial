@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EventBuffer } from "./events";
+import { EventBuffer } from "@server/events";
 
 describe("EventBuffer", () => {
   it("publishes, replays, and detects stale cursors", () => {

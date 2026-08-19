@@ -39,6 +39,12 @@ export interface ToolRun {
   endedAt?: number;
 }
 
+export interface ThinkingBlock {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
 export interface SessionStats {
   sessionId: string;
   userMessages: number;
@@ -58,6 +64,36 @@ export interface ConversationSettings {
   followUpMode: "all" | "one-at-a-time";
 }
 
+export interface ToolSettingItem {
+  name: string;
+  description: string;
+  source: {
+    kind: "builtin" | "extension";
+    label: string;
+    path?: string;
+  };
+  globalEnabled: boolean;
+  conversationOverride: boolean | null;
+  effectiveEnabled: boolean;
+}
+
+export interface ToolSettingsView {
+  defaultEnabled: true;
+  tools: ToolSettingItem[];
+}
+
+export interface GlobalToolSettingItem {
+  name: string;
+  description: string;
+  source: ToolSettingItem["source"];
+  enabled: boolean;
+}
+
+export interface GlobalToolSettingsView {
+  defaultEnabled: true;
+  tools: GlobalToolSettingItem[];
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;
@@ -74,12 +110,14 @@ export interface ActivityItem {
   type: string;
   timestamp: string;
   summary: string;
+  sourceId?: string;
 }
 
 export interface ConversationSnapshot {
   conversation: ConversationSummary;
   messages: ChatMessage[];
   tools: ToolRun[];
+  thinking: ThinkingBlock[];
   model: { provider: string; id: string };
   thinkingLevel: ThinkingLevel;
   availableThinkingLevels: ThinkingLevel[];
@@ -98,6 +136,12 @@ export interface BootstrapData {
   warning: string;
   idleTtlMs: number;
   dataDir: string;
+  repository?: RepositoryInfo;
+}
+
+export interface RepositoryInfo {
+  branch: string;
+  commit: string;
 }
 
 export interface StreamEvent<T = unknown> {

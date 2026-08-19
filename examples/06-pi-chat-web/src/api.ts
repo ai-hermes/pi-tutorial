@@ -1,11 +1,13 @@
 import type {
   BootstrapData,
-  ConversationSettings,
   ConversationSnapshot,
   ConversationSummary,
+  ConversationSettings,
+  GlobalToolSettingsView,
   QueueBehavior,
   StreamEvent,
   ThinkingLevel,
+  ToolSettingsView,
 } from "../shared/types";
 
 async function response<T>(request: Promise<Response>): Promise<T> {
@@ -48,6 +50,10 @@ export const setModel = (id: string, provider: string, modelId: string) => respo
 export const setThinking = (id: string, level: ThinkingLevel) => response(fetch(`/api/conversations/${id}/thinking`, json({ level })));
 export const compactConversation = (id: string, instructions: string) => response(fetch(`/api/conversations/${id}/compact`, json({ instructions })));
 export const updateConversationSettings = (id: string, settings: Partial<ConversationSettings>) => response<ConversationSettings>(fetch(`/api/conversations/${id}/settings`, { ...json(settings), method: "PATCH" }));
+export const getToolSettings = (id: string) => response<ToolSettingsView>(fetch(`/api/conversations/${id}/tools`));
+export const updateConversationTool = (id: string, name: string, enabled: boolean | null) => response<ToolSettingsView>(fetch(`/api/conversations/${id}/tools`, { ...json({ name, enabled }), method: "PATCH" }));
+export const getGlobalToolSettings = () => response<GlobalToolSettingsView>(fetch("/api/settings/tools"));
+export const updateGlobalTool = (name: string, enabled: boolean) => response<GlobalToolSettingsView>(fetch("/api/settings/tools", { ...json({ name, enabled }), method: "PATCH" }));
 export const branchConversation = (id: string, entryId: string, text: string) => response<ConversationSnapshot>(fetch(`/api/conversations/${id}/branches`, json({ entryId, text })));
 
 export function connectEvents(

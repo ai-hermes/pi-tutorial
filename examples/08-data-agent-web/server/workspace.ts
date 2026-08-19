@@ -150,7 +150,7 @@ class ActiveWorkspace {
     this.events.publish("message.added", { message });
     this.events.publish("run.started", {});
 
-    void this.agent.session.prompt(text).catch((error: unknown) => {
+    this.agent.session.prompt(text).catch((error: unknown) => {
       this.fail(error);
     });
   }

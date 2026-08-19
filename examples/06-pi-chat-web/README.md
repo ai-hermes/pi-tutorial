@@ -27,6 +27,20 @@ pnpm example:pi-chat-web:build
 pnpm --filter @warjiang/pi-chat-web start
 ```
 
+## 目录约定（源码与测试分离）
+
+- 业务源码位于 `src/`、`server/`、`shared/`。
+- 测试代码集中位于 `test/`：
+
+```text
+test/
+	server/           Node 环境的服务端测试
+	src/              前端状态与页面测试
+	src/components/   组件测试
+```
+
+Vitest 会自动发现 `test/**/*.test.ts` 与 `test/**/*.test.tsx`。
+
 ## 数据与配置
 
 默认数据目录为 `~/.pi/agent/web-chat`：

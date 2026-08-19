@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { projectTranscript } from "./projection";
+import { projectTranscript } from "@server/projection";
 
 describe("projectTranscript", () => {
-  it("hides thinking and joins tool calls with results", () => {
+  it("projects thinking and joins tool calls with results", () => {
     const timestamp = Date.now();
     const entries = [
       { id: "u1", type: "message", timestamp: new Date(timestamp).toISOString(), message: { role: "user", timestamp, content: "Inspect files" } },
@@ -15,7 +15,9 @@ describe("projectTranscript", () => {
     ];
     const result = projectTranscript(entries);
     expect(result.messages.map((message) => message.text)).toEqual(["Inspect files", "Done"]);
+    expect(result.thinking).toEqual([{ id: "a1:thinking", text: "hidden", timestamp: timestamp + 1 }]);
     expect(result.tools[0]).toMatchObject({ id: "t1", name: "ls", status: "success", result: "README.md" });
+    expect(result.activity.map((item) => item.type)).toEqual(["message.completed", "tool.completed", "tool.started", "message.added"]);
   });
 
   it("preserves session entry order when raw timestamps are equal or reversed", () => {

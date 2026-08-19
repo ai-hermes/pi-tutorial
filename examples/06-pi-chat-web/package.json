@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web -c green,cyan \"pnpm server:dev\" \"pnpm web:dev\"",
+    "dev": "concurrently -k -n api,web -c green,cyan \"pnpm server:dev\" \"wait-on http-get://127.0.0.1:4328/api/health && pnpm web:dev\"",
     "server:dev": "tsx watch --env-file-if-exists=../../.env server/index.ts",
     "web:dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
@@ -13,15 +13,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-ai": "0.80.10",
+    "@earendil-works/pi-coding-agent": "0.80.10",
+    "@earendil-works/pi-tui": "0.80.10",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@hono/node-server": "^1.19.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "hono": "^4.9.6",
     "lucide-react": "^1.28.0",
     "next-themes": "^0.4.6",
+    "pi-web-access": "0.24.0",
     "radix-ui": "^1.6.7",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
@@ -46,6 +50,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wait-on": "^9.1.0"
   }
 }

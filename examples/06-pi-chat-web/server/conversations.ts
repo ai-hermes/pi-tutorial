@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
+  type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
@@ -15,28 +16,36 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type {
+  ActivityItem,
   BootstrapData,
   ChatImage,
   ConversationSettings,
   ConversationSnapshot,
   ConversationSummary,
-  ModelOption,
+  GlobalToolSettingsView,
   QueueBehavior,
   RuntimeStatus,
   SessionStats,
   ThinkingLevel,
+  ToolSettingItem,
+  ToolSettingsView,
   ToolRun,
-} from "../shared/types";
-import { assertInside, ensurePaths, idleTtlMs, resolvePaths, SECURITY_WARNING, type AppPaths } from "./config";
-import { EventBuffer } from "./events";
-import { projectEntry, projectTranscript } from "./projection";
+} from "@shared/types";
+import { attachmentPrompt, safeAttachmentName, saveAttachments, validateAttachments, validateImages, visualAttachments } from "@server/attachments";
+import { assertInside, ensurePaths, idleTtlMs, resolvePaths, SECURITY_WARNING, type AppPaths } from "@server/config";
+import { ConversationError } from "@server/errors";
+import { EventBuffer } from "@server/events";
+import { projectEntry, projectTranscript } from "@server/projection";
+import { readRepositoryInfo } from "@server/repository";
+import { MAX_IMPORT_BYTES, validateSessionJsonl } from "@server/session-files";
+import { PI_EXTENSION_PATHS } from "@server/pi-extensions";
+import {
+  type ConversationToolSettings,
+  type GlobalToolSettings,
+  ToolSettingsStore,
+  conversationToolSettings,
+} from "@server/tool-settings";
 
-const FULL_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
-const MAX_ATTACHMENTS = 5;
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-const MAX_ATTACHMENTS_BYTES = 50 * 1024 * 1024;
-export const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
-const VISUAL_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const SYSTEM_PROMPT = `You are Pi Chat, a helpful, precise coding assistant running in a dedicated conversation workspace.
 
 You can inspect files, run commands, and edit the workspace. Explain important actions and summarize concrete results. Prefer small, verifiable changes. Never claim a command or edit succeeded unless its tool result confirms it.
@@ -52,6 +61,7 @@ interface ConversationRecord {
   updatedAt: string;
   parentId?: string;
   settings?: ConversationSettings;
+  toolSettings?: ConversationToolSettings;
 }
 
 interface ActiveConversation {
@@ -66,20 +76,13 @@ interface ActiveConversation {
   timer?: ReturnType<typeof setTimeout>;
 }
 
-export class ConversationError extends Error {
-  constructor(message: string, readonly status = 400) {
-    super(message);
-  }
-}
-
 export class ConversationService {
   readonly paths: AppPaths;
   readonly ttlMs: number;
   private readonly active = new Map<string, ActiveConversation>();
   private readonly loading = new Map<string, Promise<ActiveConversation>>();
   private readonly channels = new Map<string, EventBuffer>();
-  private readonly recordLocks = new Map<string, Promise<void>>();
-  private readonly sessionLocks = new Map<string, Promise<void>>();
+  private readonly toolSettingsStore: ToolSettingsStore;
 
   private constructor(
     private readonly modelRuntime: ModelRuntime,
@@ -88,6 +91,7 @@ export class ConversationService {
   ) {
     this.paths = paths;
     this.ttlMs = ttl;
+    this.toolSettingsStore = new ToolSettingsStore(paths.appSettings);
   }
 
   static async create(options: { dataDir?: string; ttlMs?: number; modelRuntime?: ModelRuntime } = {}): Promise<ConversationService> {
@@ -100,8 +104,15 @@ export class ConversationService {
   }
 
   async bootstrap(): Promise<BootstrapData> {
-    const models = await this.availableModels();
-    return { models, warning: SECURITY_WARNING, idleTtlMs: this.ttlMs, dataDir: this.paths.root };
+    const models = (await this.modelRuntime.getAvailable()).map((model) => ({
+      provider: model.provider,
+      id: model.id,
+      name: model.name || model.id,
+      contextWindow: model.contextWindow,
+      reasoning: model.reasoning,
+      imageInput: model.input.includes("image"),
+    }));
+    return { models, warning: SECURITY_WARNING, idleTtlMs: this.ttlMs, dataDir: this.paths.root, repository: await readRepositoryInfo() };
   }
 
   async list(): Promise<ConversationSummary[]> {
@@ -126,6 +137,7 @@ export class ConversationService {
       createdAt: now,
       updatedAt: now,
       settings: defaultSettings(),
+      toolSettings: { overrides: {} },
     };
     await this.writeRecord(record);
     await this.load(record, manager);
@@ -167,6 +179,7 @@ export class ConversationService {
         createdAt: now,
         updatedAt: now,
         settings: defaultSettings(),
+        toolSettings: { overrides: {} },
       };
       await this.writeRecord(record);
       await this.load(record, manager);
@@ -174,7 +187,6 @@ export class ConversationService {
     } catch (error) {
       await this.release(id).catch(() => undefined);
       this.channels.delete(id);
-      this.loading.delete(id);
       await Promise.allSettled([
         rm(this.recordPath(id), { force: true }),
         ...(sessionFile ? [rm(assertInside(this.paths.sessions, sessionFile), { force: true })] : []),
@@ -200,6 +212,7 @@ export class ConversationService {
       conversation: { ...this.summary(record, active.status), messageCount: projected.messages.length },
       messages: projected.messages,
       tools: projected.tools,
+      thinking: projected.thinking,
       model: { provider: session.agent.state.model.provider, id: session.agent.state.model.id },
       thinkingLevel: session.agent.state.thinkingLevel as ThinkingLevel,
       availableThinkingLevels: session.getAvailableThinkingLevels() as ThinkingLevel[],
@@ -209,7 +222,7 @@ export class ConversationService {
       settings: this.settings(session),
       stats,
       stream: { id: channel.streamId, lastEventId: channel.lastId },
-      activity: channel.activity(),
+      activity: mergeActivity(channel.activity(), projected.activity),
       diagnostics: active.diagnostics,
     };
   }
@@ -229,21 +242,18 @@ export class ConversationService {
   }
 
   async delete(id: string): Promise<void> {
-    await this.withRecordLock(id, async () => {
-      const record = await this.getRecord(id);
-      const active = this.active.get(id);
-      if (active && this.isBusy(active)) throw new ConversationError("运行期间不能删除对话。", 409);
-      await this.release(id);
-      const recordPath = this.recordPath(id);
-      await rm(assertInside(this.paths.records, recordPath), { force: true });
-      if (existsSync(record.sessionFile)) await rm(assertInside(this.paths.sessions, record.sessionFile), { force: true });
+    const record = await this.getRecord(id);
+    const active = this.active.get(id);
+    if (active && this.isBusy(active)) throw new ConversationError("运行期间不能删除对话。", 409);
+    await this.release(id);
+    await rm(assertInside(this.paths.records, this.recordPath(id)), { force: true });
+    if (existsSync(record.sessionFile)) await rm(assertInside(this.paths.sessions, record.sessionFile), { force: true });
 
-      const remaining = await this.readRecords();
-      if (!remaining.some((item) => item.workspace === record.workspace)) {
-        await rm(assertInside(this.paths.workspaces, record.workspace), { recursive: true, force: true });
-      }
-      this.channels.delete(id);
-    });
+    const remaining = await this.readRecords();
+    if (!remaining.some((item) => item.workspace === record.workspace)) {
+      await rm(assertInside(this.paths.workspaces, record.workspace), { recursive: true, force: true });
+    }
+    this.channels.delete(id);
   }
 
   async sendFiles(id: string, text: string, files: File[], behavior: QueueBehavior): Promise<void> {
@@ -251,10 +261,7 @@ export class ConversationService {
     const active = await this.ensureRuntime(id);
     const record = await this.getRecord(id);
     const supportsImages = active.runtime.session.agent.state.model.input.includes("image");
-    const visualFiles = supportsImages
-      ? files.filter((file) => VISUAL_IMAGE_TYPES.has(file.type) && file.size <= 5 * 1024 * 1024)
-      : [];
-    const images = await validateImages(visualFiles);
+    const images = await validateImages(visualAttachments(files, supportsImages));
     const attachments = await saveAttachments(record.workspace, files);
     const prompt = attachmentPrompt(text, attachments);
     const title = text.trim() || (files[0] ? `分析 ${safeAttachmentName(files[0].name)}` : "");
@@ -265,40 +272,42 @@ export class ConversationService {
     const clean = text.trim();
     if (!clean && images.length === 0) throw new ConversationError("请输入消息或添加图片。");
     if (clean.length > 20_000) throw new ConversationError("消息不能超过 20,000 个字符。");
-    await this.withSessionLock(id, async () => {
-      const active = await this.ensureRuntime(id);
-      const session = active.runtime.session;
-      active.error = undefined;
+    const active = await this.ensureRuntime(id);
+    const session = active.runtime.session;
+    active.error = undefined;
 
-      if (active.status === "stopping" || active.status === "compacting") {
-        throw new ConversationError("停止或压缩期间不能发送消息。", 409);
-      }
+    if (active.status === "stopping" || active.status === "compacting") {
+      throw new ConversationError("停止或压缩期间不能发送消息。", 409);
+    }
 
-      if (session.agent.state.isStreaming || active.status === "running") {
-        if (behavior === "steer") await session.steer(clean, images);
-        else await session.followUp(clean, images);
-        this.touch(active);
-        return;
-      }
+    if (session.agent.state.isStreaming || active.status === "running") {
+      if (behavior === "steer") await session.steer(clean, images);
+      else await session.followUp(clean, images);
+      this.touch(active);
+      return;
+    }
 
-      await this.updateRecord(id, (record) => {
-        const cleanTitle = titleText.trim();
-        if (record.title === "新对话" && cleanTitle) {
-          const title = cleanTitle.split("\n", 1)[0].slice(0, 48);
+    let generatedTitle: string | undefined;
+    await this.updateRecord(id, (record) => {
+      if (record.title === "新对话") {
+        const title = conversationTitle(titleText);
+        if (title) {
           record.title = title;
-          active.runtime.session.setSessionName(title);
+          session.setSessionName(title);
+          generatedTitle = title;
         }
-        record.updatedAt = new Date().toISOString();
-      });
-      this.setStatus(active, "running");
-
-      void session.prompt(clean || "请分析附带的图片。", {
-        images,
-        preflightResult: (accepted) => {
-          if (!accepted) this.fail(active, new Error("消息未被 Agent 接受。"));
-        },
-      }).catch((error: unknown) => this.fail(active, error));
+      }
+      record.updatedAt = new Date().toISOString();
     });
+    if (generatedTitle) active.events.publish("conversation.renamed", { title: generatedTitle });
+    this.setStatus(active, "running");
+
+    session.prompt(clean || "请分析附带的图片。", {
+      images,
+      preflightResult: (accepted) => {
+        if (!accepted) this.fail(active, new Error("消息未被 Agent 接受。"));
+      },
+    }).catch((error: unknown) => this.fail(active, error));
   }
 
   async abort(id: string): Promise<void> {
@@ -332,7 +341,7 @@ export class ConversationService {
   async compact(id: string, instructions?: string): Promise<void> {
     const active = await this.ensureIdle(id);
     this.setStatus(active, "compacting");
-    void active.runtime.session.compact(instructions?.trim() || undefined)
+    active.runtime.session.compact(instructions?.trim() || undefined)
       .then(() => this.setStatus(active, "ready"))
       .catch((error: unknown) => this.fail(active, error));
   }
@@ -358,6 +367,58 @@ export class ConversationService {
     return settings;
   }
 
+  async getToolSettings(id: string): Promise<ToolSettingsView> {
+    const [record, active, global] = await Promise.all([
+      this.getRecord(id),
+      this.ensureRuntime(id),
+      this.toolSettingsStore.read(),
+    ]);
+    return toolSettingsView(active.runtime.session, record.toolSettings, global);
+  }
+
+  async getGlobalToolSettings(): Promise<GlobalToolSettingsView> {
+    const context = await this.globalToolSettingsContext();
+    return globalToolSettingsView(context.runtime.session, await this.toolSettingsStore.read());
+  }
+
+  async updateGlobalTool(name: string, enabled: boolean): Promise<GlobalToolSettingsView> {
+    if (typeof name !== "string" || !name.trim()) throw new ConversationError("工具名称无效。");
+    if (typeof enabled !== "boolean") throw new ConversationError("enabled 必须是布尔值。");
+    const context = await this.globalToolSettingsContext();
+    assertRegisteredTool(context.runtime.session, name);
+
+    const global = await this.toolSettingsStore.update(name, enabled);
+    await Promise.all([...this.active.values()].map(async (active) => {
+      const record = await this.getRecord(active.id);
+      applyToolSettings(active.runtime.session, record.toolSettings, global);
+      active.events.publish("settings.changed", this.settings(active.runtime.session));
+      active.events.publish("tools.changed", {});
+      this.touch(active);
+    }));
+
+    return globalToolSettingsView(context.runtime.session, global);
+  }
+
+  async updateConversationTool(id: string, name: string, enabled: boolean | null): Promise<ToolSettingsView> {
+    if (typeof name !== "string" || !name.trim()) throw new ConversationError("工具名称无效。");
+    if (enabled !== null && typeof enabled !== "boolean") throw new ConversationError("enabled 必须是布尔值或 null。");
+    const active = await this.ensureRuntime(id);
+    assertRegisteredTool(active.runtime.session, name);
+    const record = await this.updateRecord(id, (current) => {
+      const settings = conversationToolSettings(current.toolSettings);
+      if (enabled === null) delete settings.overrides[name];
+      else settings.overrides[name] = enabled;
+      current.toolSettings = settings;
+      current.updatedAt = new Date().toISOString();
+    });
+    const global = await this.toolSettingsStore.read();
+    applyToolSettings(active.runtime.session, record.toolSettings, global);
+    active.events.publish("settings.changed", this.settings(active.runtime.session));
+    active.events.publish("tools.changed", {});
+    this.touch(active);
+    return toolSettingsView(active.runtime.session, record.toolSettings, global);
+  }
+
   async branch(id: string, entryId: string, text: string): Promise<ConversationSnapshot> {
     const active = await this.ensureIdle(id);
     const source = await this.getRecord(id);
@@ -377,6 +438,7 @@ export class ConversationService {
       updatedAt: new Date().toISOString(),
       parentId: id,
       settings: this.settings(active.runtime.session),
+      toolSettings: structuredClone(conversationToolSettings(source.toolSettings)),
     };
     await this.writeRecord(record);
     this.active.delete(id);
@@ -430,7 +492,7 @@ export class ConversationService {
       headers: {
         "Cache-Control": "no-cache, no-transform",
         "Content-Type": "text/event-stream",
-        Connection: "keep-alive",
+        "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
       },
     });
@@ -460,22 +522,18 @@ export class ConversationService {
     await Promise.all([...this.active.keys()].map((id) => this.release(id)));
   }
 
-  private async availableModels(): Promise<ModelOption[]> {
-    const models = await this.modelRuntime.getAvailable();
-    return models.map((model) => ({
-      provider: model.provider,
-      id: model.id,
-      name: model.name || model.id,
-      contextWindow: model.contextWindow,
-      reasoning: model.reasoning,
-      imageInput: model.input.includes("image"),
-    }));
-  }
-
   private async ensureIdle(id: string): Promise<ActiveConversation> {
     const active = await this.ensureRuntime(id);
     if (this.isBusy(active)) throw new ConversationError("Agent 正在运行，请先停止或等待完成。", 409);
     return active;
+  }
+
+  private async globalToolSettingsContext(): Promise<ActiveConversation> {
+    const active = this.active.values().next().value as ActiveConversation | undefined;
+    if (active) return active;
+    const record = (await this.readRecords())[0];
+    if (!record) throw new ConversationError("请先创建一个会话。", 409);
+    return this.ensureRuntime(record.id);
   }
 
   private isBusy(active: ActiveConversation): boolean {
@@ -493,8 +551,9 @@ export class ConversationService {
   }
 
   private async load(record: ConversationRecord, manager?: SessionManager): Promise<ActiveConversation> {
-    const sessionManager = manager ?? (existsSync(record.sessionFile)
-      ? SessionManager.open(record.sessionFile, this.paths.sessions)
+    const restoredSessionFile = manager ? undefined : await this.findSessionFile(record);
+    const sessionManager = manager ?? (restoredSessionFile
+      ? SessionManager.open(restoredSessionFile, this.paths.sessions, record.workspace)
       : SessionManager.create(record.workspace, this.paths.sessions, { id: record.id }));
     const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager: nextManager, sessionStartEvent }) => {
       const settingsManager = SettingsManager.inMemory({
@@ -508,15 +567,20 @@ export class ConversationService {
         agentDir: getAgentDir(),
         settingsManager,
         modelRuntime: this.modelRuntime,
-        resourceLoaderOptions: { systemPromptOverride: () => SYSTEM_PROMPT },
+        resourceLoaderOptions: {
+          noExtensions: true,
+          additionalExtensionPaths: PI_EXTENSION_PATHS,
+          systemPromptOverride: () => SYSTEM_PROMPT,
+        },
       });
+      const created = await createAgentSessionFromServices({
+        services,
+        sessionManager: nextManager,
+        sessionStartEvent,
+      });
+      applyToolSettings(created.session, record.toolSettings, await this.toolSettingsStore.read());
       return {
-        ...(await createAgentSessionFromServices({
-          services,
-          sessionManager: nextManager,
-          sessionStartEvent,
-          tools: FULL_TOOLS,
-        })),
+        ...created,
         services,
         diagnostics: services.diagnostics,
       };
@@ -526,6 +590,12 @@ export class ConversationService {
       agentDir: getAgentDir(),
       sessionManager,
     });
+    const sessionFile = runtime.session.sessionFile;
+    if (sessionFile && sessionFile !== record.sessionFile) {
+      await this.updateRecord(record.id, (current) => {
+        current.sessionFile = sessionFile;
+      });
+    }
     if (runtime.session.sessionManager.getSessionName() !== record.title) runtime.session.setSessionName(record.title);
     const active: ActiveConversation = {
       id: record.id,
@@ -538,6 +608,16 @@ export class ConversationService {
     await this.bind(active);
     this.touch(active);
     return active;
+  }
+
+  private async findSessionFile(record: ConversationRecord): Promise<string | undefined> {
+    if (existsSync(record.sessionFile)) return record.sessionFile;
+
+    const suffix = `_${record.id}.jsonl`;
+    const candidates = (await readdir(this.paths.sessions))
+      .filter((file) => file.endsWith(suffix))
+      .sort();
+    return candidates.at(-1) ? assertInside(this.paths.sessions, join(this.paths.sessions, candidates.at(-1)!)) : undefined;
   }
 
   private async bind(active: ActiveConversation): Promise<void> {
@@ -610,7 +690,10 @@ export class ConversationService {
         active.streamMessageId = undefined;
         this.setStatus(active, "ready");
         active.events.publish("runtime.settled", {});
-        void this.bumpRecord(active.id);
+        this.updateRecord(active.id, (record) => {
+          record.sessionFile = active.runtime.session.sessionFile ?? record.sessionFile;
+          record.updatedAt = new Date().toISOString();
+        }).catch((error: unknown) => this.fail(active, error));
         this.touch(active);
         break;
       default:
@@ -633,7 +716,9 @@ export class ConversationService {
 
   private touch(active: ActiveConversation): void {
     if (active.timer) clearTimeout(active.timer);
-    active.timer = setTimeout(() => void this.releaseIdle(active.id), this.ttlMs);
+    active.timer = setTimeout(() => {
+      this.releaseIdle(active.id).catch((error: unknown) => this.fail(active, error));
+    }, this.ttlMs);
     active.timer.unref?.();
   }
 
@@ -696,40 +781,25 @@ export class ConversationService {
     await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
   }
 
-  private async withLock<T>(locks: Map<string, Promise<void>>, id: string, operation: () => Promise<T>): Promise<T> {
-    const previous = locks.get(id) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(operation);
-    const settled = current.then(() => undefined, () => undefined);
-    locks.set(id, settled);
-    try {
-      return await current;
-    } finally {
-      if (locks.get(id) === settled) locks.delete(id);
-    }
+  private async updateRecord(id: string, update: (record: ConversationRecord) => void): Promise<ConversationRecord> {
+    const record = await this.getRecord(id);
+    update(record);
+    await this.writeRecord(record);
+    return record;
   }
 
-  private withRecordLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
-    return this.withLock(this.recordLocks, id, operation);
-  }
+}
 
-  private withSessionLock<T>(id: string, operation: () => Promise<T>): Promise<T> {
-    return this.withLock(this.sessionLocks, id, operation);
-  }
+function conversationTitle(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+}
 
-  private async updateRecord(id: string, update: (record: ConversationRecord) => void | Promise<void>): Promise<ConversationRecord> {
-    return this.withRecordLock(id, async () => {
-      const record = await this.getRecord(id);
-      await update(record);
-      await this.writeRecord(record);
-      return record;
-    });
-  }
-
-  private async bumpRecord(id: string): Promise<void> {
-    await this.updateRecord(id, (record) => {
-      record.updatedAt = new Date().toISOString();
-    });
-  }
+function mergeActivity(live: ActivityItem[], history: ActivityItem[]): ActivityItem[] {
+  const historyKeys = new Set(history.flatMap((item) => item.sourceId ? [`${item.type}:${item.sourceId}`] : []));
+  return [...live.filter((item) => !item.sourceId || !historyKeys.has(`${item.type}:${item.sourceId}`)), ...history].slice(0, 100);
 }
 
 async function loadConfiguredProviderExtensions(modelRuntime: ModelRuntime, cwd: string): Promise<void> {
@@ -771,98 +841,81 @@ function normalizeStats(stats: ReturnType<ActiveConversation["runtime"]["session
   };
 }
 
-export function validateImages(files: File[]): Promise<ChatImage[]> {
-  if (files.length > MAX_ATTACHMENTS) throw new ConversationError(`每条消息最多添加 ${MAX_ATTACHMENTS} 张图片。`);
-  return Promise.all(files.map(async (file) => {
-    if (!VISUAL_IMAGE_TYPES.has(file.type)) throw new ConversationError("仅支持 PNG、JPEG 和 WebP 图片。");
-    if (file.size > 5 * 1024 * 1024) throw new ConversationError("单张图片不能超过 5 MB。", 413);
-    return { type: "image" as const, mimeType: file.type, data: Buffer.from(await file.arrayBuffer()).toString("base64") };
-  }));
+function applyToolSettings(
+  session: AgentSession,
+  conversation: ConversationToolSettings | undefined,
+  global: GlobalToolSettings,
+): void {
+  const overrides = conversationToolSettings(conversation).overrides;
+  session.setActiveToolsByName(
+    session.getAllTools()
+      .filter((tool) => overrides[tool.name] ?? global.overrides[tool.name] ?? global.defaultEnabled)
+      .map((tool) => tool.name),
+  );
 }
 
-export function validateAttachments(files: File[]): void {
-  if (files.length > MAX_ATTACHMENTS) throw new ConversationError(`每条消息最多添加 ${MAX_ATTACHMENTS} 个附件。`);
-  const total = files.reduce((sum, file) => sum + file.size, 0);
-  const oversized = files.find((file) => file.size > MAX_ATTACHMENT_BYTES);
-  if (oversized) throw new ConversationError(`附件「${oversized.name}」不能超过 20 MB。`, 413);
-  if (total > MAX_ATTACHMENTS_BYTES) throw new ConversationError("单条消息的附件总大小不能超过 50 MB。", 413);
+function toolSettingsView(
+  session: AgentSession,
+  conversation: ConversationToolSettings | undefined,
+  global: GlobalToolSettings,
+): ToolSettingsView {
+  const overrides = conversationToolSettings(conversation).overrides;
+  return {
+    defaultEnabled: true,
+    tools: session.getAllTools()
+      .map((tool): ToolSettingItem => {
+        const globalEnabled = global.overrides[tool.name] ?? global.defaultEnabled;
+        const conversationOverride = overrides[tool.name] ?? null;
+        return {
+          name: tool.name,
+          description: tool.description,
+          source: toolSource(tool.sourceInfo),
+          globalEnabled,
+          conversationOverride,
+          effectiveEnabled: conversationOverride ?? globalEnabled,
+        };
+      })
+      .sort((left, right) => left.source.label.localeCompare(right.source.label) || left.name.localeCompare(right.name)),
+  };
 }
 
-export function validateSessionJsonl(content: string): string {
-  const lines = content.split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length === 0) throw new ConversationError("请选择非空的 Pi Session JSONL 文件。");
-
-  const entries = lines.map((line, index) => {
-    try {
-      const value = JSON.parse(index === 0 ? line.replace(/^\uFEFF/, "") : line) as unknown;
-      if (!value || typeof value !== "object" || typeof (value as { type?: unknown }).type !== "string") throw new Error("Invalid entry");
-      return value as { type: string; id?: unknown };
-    } catch {
-      throw new ConversationError(`第 ${index + 1} 行不是有效的 Pi Session JSONL。`);
-    }
-  });
-  const header = entries[0];
-  if (header.type !== "session" || typeof header.id !== "string" || !header.id.trim()) {
-    throw new ConversationError("文件缺少有效的 Pi Session 头信息。");
-  }
-  if (entries.slice(1).some((entry) => entry.type === "session")) {
-    throw new ConversationError("文件包含重复的 Pi Session 头信息。");
-  }
-  return `${lines.map((line, index) => index === 0 ? line.replace(/^\uFEFF/, "") : line).join("\n")}\n`;
+function globalToolSettingsView(session: AgentSession, global: GlobalToolSettings): GlobalToolSettingsView {
+  return {
+    defaultEnabled: true,
+    tools: session.getAllTools()
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        source: toolSource(tool.sourceInfo),
+        enabled: global.overrides[tool.name] ?? global.defaultEnabled,
+      }))
+      .sort((left, right) => left.source.label.localeCompare(right.source.label) || left.name.localeCompare(right.name)),
+  };
 }
 
-interface SavedAttachment {
-  path: string;
-  name: string;
-  type: string;
-  size: number;
-}
-
-export async function saveAttachments(workspace: string, files: File[]): Promise<SavedAttachment[]> {
-  if (files.length === 0) return [];
-  const directory = assertInside(workspace, join(workspace, ".pi-chat-attachments"));
-  await mkdir(directory, { recursive: true });
-  const saved: SavedAttachment[] = [];
-  const written: string[] = [];
-  try {
-    for (const file of files) {
-      const name = safeAttachmentName(file.name);
-      const storedName = `${Date.now()}-${randomUUID().slice(0, 8)}-${name}`;
-      const target = assertInside(directory, join(directory, storedName));
-      await writeFile(target, Buffer.from(await file.arrayBuffer()));
-      written.push(target);
-      saved.push({ path: `.pi-chat-attachments/${storedName}`, name: displayAttachmentName(file.name || name), type: file.type || "application/octet-stream", size: file.size });
-    }
-    return saved;
-  } catch (error) {
-    await Promise.all(written.map((path) => rm(path, { force: true })));
-    throw error;
+function assertRegisteredTool(session: AgentSession, name: string): void {
+  if (!session.getAllTools().some((tool) => tool.name === name)) {
+    throw new ConversationError(`工具不存在或尚未注册：${name}`, 404);
   }
 }
 
-function safeAttachmentName(name: string): string {
-  const clean = basename(name || "attachment")
-    .normalize("NFKC")
-    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
-    .replace(/^\.+|\.+$/g, "")
-    .slice(-120);
-  return clean || "attachment";
+function toolSource(sourceInfo: { source: string; path: string }): ToolSettingItem["source"] {
+  if (sourceInfo.source === "builtin" || sourceInfo.path.startsWith("<builtin:")) {
+    return { kind: "builtin", label: "内置工具" };
+  }
+  return {
+    kind: "extension",
+    label: packageNameFromPath(sourceInfo.path) ?? sourceInfo.source ?? "Extension",
+    path: sourceInfo.path,
+  };
 }
 
-function displayAttachmentName(name: string): string {
-  return name.replace(/[\r\n`]/g, " ").trim().slice(0, 160) || "attachment";
-}
-
-function attachmentPrompt(text: string, attachments: SavedAttachment[]): string {
-  const clean = text.trim();
-  if (attachments.length === 0) return clean;
-  const list = attachments.map((file) => `- \`${file.path}\`（原文件名：${file.name}；${file.type}；${file.size} bytes）`).join("\n");
-  const note = `用户上传的附件已保存到当前 workspace，请按需使用 read/bash 等工具读取并分析：\n${list}`;
-  return clean ? `${clean}\n\n${note}` : note;
-}
-
-export function downloadName(path: string): string {
-  return basename(path);
+function packageNameFromPath(path: string): string | undefined {
+  const marker = `${path.includes("\\") ? "\\" : "/"}node_modules${path.includes("\\") ? "\\" : "/"}`;
+  const tail = path.split(marker).at(-1);
+  if (!tail || tail === path) return undefined;
+  const parts = tail.split(/[\\/]/);
+  return parts[0]?.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 }
 
 function defaultSettings(): ConversationSettings {

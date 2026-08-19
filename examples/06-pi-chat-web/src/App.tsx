@@ -1,20 +1,19 @@
 import { startTransition, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { CircleIcon, MoonIcon, PanelRightIcon, SunIcon } from "lucide-react";
-import { useTheme } from "next-themes";
+import { PanelRightIcon, RadioTowerIcon } from "lucide-react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { BootstrapData, ChatMessage, ConversationSettings, ConversationSummary, QueueBehavior, StreamEvent } from "../shared/types";
+import type { BootstrapData, ChatMessage, ConversationSettings, ConversationSummary, GlobalToolSettingsView, QueueBehavior, StreamEvent, ToolSettingsView } from "../shared/types";
 import {
   abortRun, branchConversation, compactConversation, connectEvents, createConversation, deleteConversation,
-  getBootstrap, getConversation, importConversation, listConversations, renameConversation, sendMessage, setModel, setThinking,
-  updateConversationSettings,
+  getBootstrap, getConversation, getGlobalToolSettings, getToolSettings, importConversation, listConversations, renameConversation, sendMessage, setModel, setThinking,
+  updateConversationSettings, updateConversationTool, updateGlobalTool,
 } from "./api";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { Composer } from "./components/Composer";
+import { ConversationSettingsDialog } from "./components/ConversationSettingsDialog";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { HarnessSheet } from "./components/HarnessSheet";
 import { snapshotReducer } from "./state";
@@ -26,15 +25,22 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [toolSettings, setToolSettings] = useState<GlobalToolSettingsView>();
+  const [toolSettingsLoading, setToolSettingsLoading] = useState(false);
+  const [conversationToolSettings, setConversationToolSettings] = useState<ToolSettingsView>();
+  const [conversationToolSettingsLoading, setConversationToolSettingsLoading] = useState(false);
+  const [conversationEntered, setConversationEntered] = useState(false);
   const initialized = useRef(false);
   const pendingEvents = useRef<StreamEvent[]>([]);
   const eventFrame = useRef<number | undefined>(undefined);
-  const { resolvedTheme, setTheme } = useTheme();
-
   const refreshList = async () => setConversations(await listConversations());
   const openConversation = async (id: string) => {
     setLoading(true);
-    try { dispatch({ type: "snapshot", snapshot: await getConversation(id) }); }
+    try {
+      dispatch({ type: "snapshot", snapshot: await getConversation(id) });
+      setConversationEntered(true);
+    }
     catch (error) { report(error); }
     finally { setLoading(false); }
   };
@@ -43,6 +49,7 @@ export default function App() {
     try {
       const next = await createConversation();
       dispatch({ type: "snapshot", snapshot: next });
+      setConversationEntered(true);
       await refreshList();
     } catch (error) { report(error); }
     finally { setLoading(false); }
@@ -52,6 +59,7 @@ export default function App() {
     try {
       const next = await importConversation(file);
       dispatch({ type: "snapshot", snapshot: next });
+      setConversationEntered(true);
       await refreshList();
       toast.success("会话已导入");
     } catch (error) { report(error); }
@@ -61,10 +69,13 @@ export default function App() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    void Promise.all([getBootstrap(), listConversations()]).then(async ([boot, items]) => {
+    Promise.all([getBootstrap(), listConversations()]).then(async ([boot, items]) => {
       setBootstrap(boot);
       setConversations(items);
-      if (items[0]) dispatch({ type: "snapshot", snapshot: await getConversation(items[0].id) });
+      if (items[0]) {
+        dispatch({ type: "snapshot", snapshot: await getConversation(items[0].id) });
+        setConversationEntered(true);
+      }
       else dispatch({ type: "snapshot", snapshot: await createConversation() });
     }).then(refreshList).catch(report).finally(() => setLoading(false));
   }, []);
@@ -73,8 +84,9 @@ export default function App() {
     if (!snapshot) return undefined;
     const source = connectEvents(snapshot.conversation.id, snapshot.stream.id, snapshot.stream.lastEventId, (event) => {
       if (event.type === "snapshot.required" || event.type === "runtime.settled") {
-        void getConversation(snapshot.conversation.id).then((next) => dispatch({ type: "snapshot", snapshot: next })).then(refreshList).catch(report);
+        getConversation(snapshot.conversation.id).then((next) => dispatch({ type: "snapshot", snapshot: next })).then(refreshList).catch(report);
       } else {
+        if (event.type === "conversation.renamed") refreshList().catch(report);
         pendingEvents.current.push(event);
         if (eventFrame.current === undefined) {
           eventFrame.current = requestAnimationFrame(() => {
@@ -93,6 +105,26 @@ export default function App() {
     };
   }, [snapshot?.conversation.id, snapshot?.stream.id]);
 
+  useEffect(() => {
+    if (!settingsOpen) return;
+    setToolSettings(undefined);
+    setToolSettingsLoading(true);
+    getGlobalToolSettings()
+      .then(setToolSettings)
+      .catch(report)
+      .finally(() => setToolSettingsLoading(false));
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!inspectorOpen || !snapshot) return;
+    setConversationToolSettings(undefined);
+    setConversationToolSettingsLoading(true);
+    getToolSettings(snapshot.conversation.id)
+      .then(setConversationToolSettings)
+      .catch(report)
+      .finally(() => setConversationToolSettingsLoading(false));
+  }, [inspectorOpen, snapshot?.conversation.id]);
+
   const selectedModel = useMemo(() => bootstrap?.models.find((model) => model.provider === snapshot?.model.provider && model.id === snapshot?.model.id), [bootstrap, snapshot?.model]);
   const guarded = async (action: () => Promise<unknown>, success?: string) => {
     try { await action(); if (success) toast.success(success); }
@@ -102,38 +134,42 @@ export default function App() {
   return <>
     <ConversationSidebar
       conversations={conversations}
-      selectedId={snapshot?.conversation.id}
+      selectedId={conversationEntered ? snapshot?.conversation.id : undefined}
       loading={loading}
-      onSelect={(id) => void openConversation(id)}
+      onSelect={(id) => { openConversation(id).catch(report); }}
       onNew={newConversation}
       onImport={importSession}
+      repository={bootstrap?.repository}
+      onSettings={() => setSettingsOpen(true)}
       onRename={async (id, title) => guarded(async () => { await renameConversation(id, title); await refreshList(); if (snapshot?.conversation.id === id) dispatch({ type: "snapshot", snapshot: await getConversation(id) }); }, "已重命名")}
       onDelete={async (id) => guarded(async () => {
         await deleteConversation(id);
-        const remaining = await listConversations();
-        setConversations(remaining);
+        const next = await listConversations();
+        setConversations(next);
         if (snapshot?.conversation.id === id) {
-          if (remaining[0]) dispatch({ type: "snapshot", snapshot: await getConversation(remaining[0].id) });
+          if (next[0]) dispatch({ type: "snapshot", snapshot: await getConversation(next[0].id) });
           else dispatch({ type: "snapshot", snapshot: await createConversation() });
         }
-      }, "对话已删除")}
+      }, "已删除")}
     />
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background">
-      <header data-slot="app-header" className="flex h-14 shrink-0 items-center gap-2 border-b bg-card/90 px-3 backdrop-blur md:px-4">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background md:flex-row">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <header data-slot="app-header" className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 md:px-4">
         <SidebarTrigger className="size-8 border bg-background" />
         <div className="min-w-0">
-          <p className="truncate font-mono text-[10px] leading-4 text-muted-foreground">workspace / {snapshot?.conversation.parentId ? "shared branch" : "local"}</p>
-          <h1 className="truncate text-sm font-semibold leading-4 tracking-[-0.28px]">{snapshot?.conversation.title ?? "Pi Chat"}</h1>
+          <h1 className="truncate text-[var(--type-section)] leading-5">{conversationEntered ? snapshot?.conversation.title : "新对话"}</h1>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <Badge variant="outline" className="h-7 shrink-0 gap-1.5 bg-background px-2 font-mono text-[10px] font-normal"><CircleIcon className={connected ? "fill-emerald-500 text-emerald-500" : "fill-muted-foreground text-muted-foreground"} /><span className="hidden sm:inline">{connected ? "Live" : "Reconnecting"}</span></Badge>
-          <Tooltip><TooltipTrigger asChild><Button variant={inspectorOpen ? "secondary" : "outline"} size="xs" className="h-7 bg-background px-2" aria-label="打开 Harness 检查器" disabled={!snapshot} onClick={() => setInspectorOpen(true)}><PanelRightIcon /><span className="hidden sm:inline">Harness</span></Button></TooltipTrigger><TooltipContent>运行状态、上下文与设置</TooltipContent></Tooltip>
-          <ThemeToggle resolvedTheme={resolvedTheme} onThemeChange={setTheme} />
+          <span className="hidden h-7 shrink-0 items-center gap-1.5 rounded-md bg-transparent px-2 text-xs text-muted-foreground sm:inline-flex" title={connected ? "实时连接正常" : "正在重新连接"}>
+            <RadioTowerIcon className={connected ? "size-3.5 text-success" : "size-3.5 text-muted-foreground"} />
+            {connected ? "Live" : "Reconnecting"}
+          </span>
+          <Tooltip><TooltipTrigger asChild><Button variant={inspectorOpen ? "secondary" : "ghost"} size="icon-sm" className="size-8 bg-transparent shadow-none" aria-label="打开会话明细" disabled={!snapshot} onClick={() => setInspectorOpen(true)}><PanelRightIcon className="size-4.5" /></Button></TooltipTrigger><TooltipContent>会话明细</TooltipContent></Tooltip>
         </div>
       </header>
 
-      {loading || !snapshot ? <LoadingState /> : <>
-        <ChatTimeline conversationId={snapshot.conversation.id} messages={snapshot.messages} tools={snapshot.tools} onBranch={async (entryId, text) => guarded(async () => { const next = await branchConversation(snapshot.conversation.id, entryId, text); dispatch({ type: "snapshot", snapshot: next }); await refreshList(); }, "分支已创建")} />
+      {!snapshot ? <LoadingState /> : <>
+        <ChatTimeline showWelcome={!conversationEntered} conversationId={snapshot.conversation.id} messages={snapshot.messages} tools={snapshot.tools} thinking={snapshot.thinking} onBranch={async (entryId, text) => guarded(async () => { const next = await branchConversation(snapshot.conversation.id, entryId, text); dispatch({ type: "snapshot", snapshot: next }); setConversationEntered(true); await refreshList(); }, "分支已创建")} />
         <Composer
           status={snapshot.status}
           imageInput={selectedModel?.imageInput ?? false}
@@ -141,8 +177,9 @@ export default function App() {
           model={snapshot.model}
           thinkingLevel={snapshot.thinkingLevel}
           thinkingLevels={snapshot.availableThinkingLevels}
-          queued={snapshot.queue.steering.length + snapshot.queue.followUp.length}
+          queue={snapshot.queue}
           onSend={async (text, images, behavior: QueueBehavior) => {
+            setConversationEntered(true);
             const optimistic: ChatMessage = {
               id: `optimistic_${crypto.randomUUID()}`,
               role: "user",
@@ -164,36 +201,38 @@ export default function App() {
           onModelChange={async (provider, id) => guarded(async () => { await setModel(snapshot.conversation.id, provider, id); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
           onThinkingChange={async (level) => guarded(async () => { await setThinking(snapshot.conversation.id, level); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
         />
-        {bootstrap && <HarnessSheet
-          open={inspectorOpen}
-          onOpenChange={setInspectorOpen}
-          snapshot={snapshot}
-          warning={bootstrap.warning}
-          onCompact={async (instructions) => guarded(async () => { await compactConversation(snapshot.conversation.id, instructions); }, "已开始压缩")}
-          onSettings={async (patch: Partial<ConversationSettings>) => guarded(async () => { await updateConversationSettings(snapshot.conversation.id, patch); dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) }); })}
-        />}
       </>}
+      </main>
+    {bootstrap && snapshot && <HarnessSheet
+      open={inspectorOpen}
+      onOpenChange={setInspectorOpen}
+      snapshot={snapshot}
+      onCompact={async (instructions) => guarded(async () => { await compactConversation(snapshot.conversation.id, instructions); }, "已开始压缩")}
+      toolSettings={conversationToolSettings}
+      toolSettingsLoading={conversationToolSettingsLoading}
+      onSettings={async (settings) => {
+        try {
+          await updateConversationSettings(snapshot.conversation.id, settings);
+          dispatch({ type: "snapshot", snapshot: await getConversation(snapshot.conversation.id) });
+        } catch (error) { report(error); throw error; }
+      }}
+      onConversationTool={async (name, enabled) => {
+        try { setConversationToolSettings(await updateConversationTool(snapshot.conversation.id, name, enabled)); }
+        catch (error) { report(error); throw error; }
+      }}
+    />}
+    <ConversationSettingsDialog
+      open={settingsOpen}
+      onOpenChange={setSettingsOpen}
+      toolSettings={toolSettings}
+      toolSettingsLoading={toolSettingsLoading}
+      onGlobalTool={async (name, enabled) => {
+        try { setToolSettings(await updateGlobalTool(name, enabled)); }
+        catch (error) { report(error); throw error; }
+      }}
+    />
     </SidebarInset>
   </>;
-}
-
-export function ThemeToggle({ resolvedTheme, onThemeChange }: { resolvedTheme?: string; onThemeChange(theme: "light" | "dark"): void }) {
-  const dark = resolvedTheme === "dark";
-  const nextTheme = dark ? "light" : "dark";
-  return <Tooltip>
-    <TooltipTrigger asChild>
-      <Button
-        variant="outline"
-        size="icon-sm"
-        className="size-7 bg-background"
-        aria-label={dark ? "切换到浅色模式" : "切换到深色模式"}
-        onClick={() => onThemeChange(nextTheme)}
-      >
-        {dark ? <MoonIcon /> : <SunIcon />}
-      </Button>
-    </TooltipTrigger>
-    <TooltipContent>{dark ? "切换到浅色模式" : "切换到深色模式"}</TooltipContent>
-  </Tooltip>;
 }
 
 function report(error: unknown): void {

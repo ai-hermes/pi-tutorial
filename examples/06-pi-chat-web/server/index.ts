@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
-import { createApp } from "./app";
-import { ConversationService } from "./conversations";
+import { createApp } from "@server/app";
+import { ConversationService } from "@server/conversations";
 
 const service = await ConversationService.create();
 const app = createApp(service);
@@ -17,5 +17,15 @@ async function shutdown(): Promise<void> {
   server.close(() => process.exit(0));
 }
 
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => {
+  shutdown().catch((error) => {
+    process.stderr.write(`Shutdown failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+});
+process.on("SIGTERM", () => {
+  shutdown().catch((error) => {
+    process.stderr.write(`Shutdown failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+});
