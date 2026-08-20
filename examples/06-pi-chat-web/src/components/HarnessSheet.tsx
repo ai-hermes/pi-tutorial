@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIcon, ArchiveIcon, ArrowUpIcon, BotIcon, CheckIcon, CircleIcon, CoinsIcon, CopyIcon, DownloadIcon, FolderIcon, GaugeIcon,
-  InfoIcon, RouteIcon, SparklesIcon, TimerResetIcon, WrenchIcon, XIcon,
+  RouteIcon, SparklesIcon, TimerResetIcon, WrenchIcon, XIcon,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -184,7 +184,7 @@ function SessionSettingsPanel({
   return <div className="space-y-5">
     <section className="rounded-lg border bg-card p-3">
       <SectionHeading title="会话策略" />
-      <p className="mt-1 text-xs text-muted-foreground">只影响当前会话，不会修改左下角的全局设置。</p>
+      <p className="mt-1 text-xs text-muted-foreground">只影响当前会话，不会修改全局设置。</p>
       <div className="mt-3 divide-y">
         <SessionSwitch label="自动压缩" checked={settings.autoCompaction} onChange={(autoCompaction) => onSettings({ autoCompaction })} />
         <SessionSwitch label="自动重试" checked={settings.autoRetry} onChange={(autoRetry) => onSettings({ autoRetry })} />
@@ -245,63 +245,29 @@ function QueueModeField({
   kind: "steer" | "followUp";
   globalValue: QueueMode;
   override: QueueMode | null;
-  onChange(value: QueueMode | null): Promise<void>;
+  onChange(value: QueueMode): Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
   const label = kind === "steer" ? "Steer 消费" : "Follow-up 消费";
   const Icon = kind === "steer" ? RouteIcon : ArrowUpIcon;
-  const description = kind === "steer"
-    ? {
-        intro: "在当前 Agent 运行中追加方向。",
-        all: "下一轮把所有排队的 Steer 一起加入上下文，Agent 同时响应。",
-        oneAtATime: "每轮只加入第一条，Agent 响应后再按顺序取下一条。",
-        example: "例如连续发送“改成 TypeScript”“补测试”“不要改 API”。",
-      }
-    : {
-        intro: "等待当前 Agent 运行结束后继续处理消息。",
-        all: "把所有排队的 Follow-up 一起加入下一轮上下文，Agent 合并处理。",
-        oneAtATime: "每轮只处理第一条，完成响应后再按顺序处理下一条。",
-        example: "例如连续发送“补测试”“生成总结”“提交修改”。",
-      };
-  const value = override ?? "inherit";
-  return <div className="grid gap-2 py-3">
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5 text-xs">
-        <Tooltip>
-          <TooltipTrigger asChild><Icon className="size-3.5 cursor-help text-muted-foreground" aria-label={`${label}说明`} /></TooltipTrigger>
-          <TooltipContent side="top" className="max-w-80 space-y-1 leading-4">
-            <p>{description.intro}</p>
-            <p>{description.example}</p>
-            <p><strong>全部：</strong>{description.all}</p>
-            <p><strong>逐条：</strong>{description.oneAtATime}</p>
-          </TooltipContent>
-        </Tooltip>
-        <span>{label}</span>
-        <span className="text-muted-foreground">{description.intro}</span>
-        <Tooltip>
-          <TooltipTrigger asChild><InfoIcon className="size-3 cursor-help text-muted-foreground" aria-label={`${label}优先级说明`} /></TooltipTrigger>
-          <TooltipContent side="top" className="max-w-72 leading-4">会话配置优先于全局配置；选择“继承全局”后，会自动跟随全局模式。</TooltipContent>
-        </Tooltip>
-      </div>
-      <div className="mt-1 space-y-0.5 pl-5 text-[11px] leading-4 text-muted-foreground">
-        <p>{description.example}</p>
-        <p><span className="font-medium text-foreground/80">全部：</span>{description.all}</p>
-        <p><span className="font-medium text-foreground/80">逐条：</span>{description.oneAtATime}</p>
-      </div>
+  const value = override ?? globalValue;
+  return <div className="flex items-center justify-between gap-3 py-3">
+    <div className="flex shrink-0 items-center gap-1.5 text-xs">
+      <Icon className="size-3.5 text-muted-foreground" />
+      <span>{label}</span>
     </div>
     <div
       role="group"
       aria-label={label}
-      className="grid w-full grid-cols-3 gap-2"
+      className="flex items-center justify-end gap-4"
     >
-      <ModeCheckbox checked={value === "inherit"} disabled={saving} label={`${label}：继承全局`} tip={`使用全局设置；当前全局模式为“${queueModeLabel(globalValue)}”。`} onSelect={() => selectMode(null)}>继承全局</ModeCheckbox>
       <ModeCheckbox checked={value === "all"} disabled={saving} label={`${label}：全部`} tip="每轮一次性消费当前队列中的全部消息，适合将连续补充合并处理。" onSelect={() => selectMode("all")}>全部</ModeCheckbox>
       <ModeCheckbox checked={value === "one-at-a-time"} disabled={saving} label={`${label}：逐条`} tip="每轮只消费队列中的一条消息，保留消息之间的执行边界。" onSelect={() => selectMode("one-at-a-time")}>逐条</ModeCheckbox>
     </div>
   </div>;
 
-  function selectMode(next: QueueMode | null): void {
-    if ((next ?? "inherit") === value) return;
+  function selectMode(next: QueueMode): void {
+    if (next === value) return;
     setSaving(true);
     onChange(next).catch(() => undefined).finally(() => setSaving(false));
   }
@@ -331,10 +297,6 @@ function ModeCheckbox({
     </TooltipTrigger>
     <TooltipContent side="top" className="max-w-64 leading-4">{tip}</TooltipContent>
   </Tooltip>;
-}
-
-function queueModeLabel(value: QueueMode): string {
-  return value === "all" ? "全部" : "逐条";
 }
 
 function ConversationToolRow({ tool, onChange }: { tool: ToolSettingItem; onChange(name: string, enabled: boolean | null): Promise<void> }) {
