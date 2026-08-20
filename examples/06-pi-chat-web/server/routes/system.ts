@@ -1,11 +1,17 @@
 import { Hono } from "hono";
 import type { ConversationService } from "@server/conversations";
 import { ConversationError } from "@server/errors";
+import type { GlobalQueueSettings } from "@shared/types";
 
 export function createSystemRoutes(service: ConversationService): Hono {
   return new Hono()
     .get("/health", (context) => context.json({ ok: true }))
     .get("/bootstrap", async (context) => context.json(await service.bootstrap()))
+    .get("/settings/queue", async (context) => context.json(await service.getGlobalQueueSettings()))
+    .patch("/settings/queue", async (context) => {
+      const body = await jsonBody<Partial<GlobalQueueSettings>>(context.req.raw);
+      return context.json(await service.updateGlobalQueueSettings(body));
+    })
     .get("/settings/tools", async (context) => context.json(await service.getGlobalToolSettings()))
     .patch("/settings/tools", async (context) => {
       const body = await jsonBody<{ name?: unknown; enabled?: unknown }>(context.req.raw);

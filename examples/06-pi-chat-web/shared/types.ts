@@ -1,5 +1,6 @@
 export type RuntimeStatus = "ready" | "running" | "stopping" | "compacting" | "error" | "cold";
 export type QueueBehavior = "steer" | "followUp";
+export type QueueMode = "all" | "one-at-a-time";
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ModelOption {
@@ -60,8 +61,27 @@ export interface SessionStats {
 export interface ConversationSettings {
   autoCompaction: boolean;
   autoRetry: boolean;
-  steeringMode: "all" | "one-at-a-time";
-  followUpMode: "all" | "one-at-a-time";
+  steeringMode: QueueMode;
+  followUpMode: QueueMode;
+  queueDefaults?: GlobalQueueSettings;
+  queueOverrides?: {
+    steeringMode: QueueMode | null;
+    followUpMode: QueueMode | null;
+  };
+}
+
+export interface ConversationSettingsPatch {
+  autoCompaction?: boolean;
+  autoRetry?: boolean;
+  queueOverrides?: {
+    steeringMode?: QueueMode | null;
+    followUpMode?: QueueMode | null;
+  };
+}
+
+export interface GlobalQueueSettings {
+  steeringMode: QueueMode;
+  followUpMode: QueueMode;
 }
 
 export interface ToolSettingItem {

@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { BootstrapData, ChatMessage, ConversationSettings, ConversationSummary, GlobalToolSettingsView, QueueBehavior, StreamEvent, ToolSettingsView } from "../shared/types";
+import type { BootstrapData, ChatMessage, ConversationSummary, GlobalQueueSettings, GlobalToolSettingsView, QueueBehavior, StreamEvent, ToolSettingsView } from "../shared/types";
 import {
   abortRun, branchConversation, compactConversation, connectEvents, createConversation, deleteConversation,
-  getBootstrap, getConversation, getGlobalToolSettings, getToolSettings, importConversation, listConversations, renameConversation, sendMessage, setModel, setThinking,
-  updateConversationSettings, updateConversationTool, updateGlobalTool,
+  getBootstrap, getConversation, getGlobalQueueSettings, getGlobalToolSettings, getToolSettings, importConversation, listConversations, renameConversation, sendMessage, setModel, setThinking,
+  updateConversationSettings, updateConversationTool, updateGlobalQueueSettings, updateGlobalTool,
 } from "./api";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { Composer } from "./components/Composer";
@@ -27,6 +27,7 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toolSettings, setToolSettings] = useState<GlobalToolSettingsView>();
+  const [queueSettings, setQueueSettings] = useState<GlobalQueueSettings>();
   const [toolSettingsLoading, setToolSettingsLoading] = useState(false);
   const [conversationToolSettings, setConversationToolSettings] = useState<ToolSettingsView>();
   const [conversationToolSettingsLoading, setConversationToolSettingsLoading] = useState(false);
@@ -108,9 +109,13 @@ export default function App() {
   useEffect(() => {
     if (!settingsOpen) return;
     setToolSettings(undefined);
+    setQueueSettings(undefined);
     setToolSettingsLoading(true);
-    getGlobalToolSettings()
-      .then(setToolSettings)
+    Promise.all([getGlobalToolSettings(), getGlobalQueueSettings()])
+      .then(([tools, queue]) => {
+        setToolSettings(tools);
+        setQueueSettings(queue);
+      })
       .catch(report)
       .finally(() => setToolSettingsLoading(false));
   }, [settingsOpen]);
@@ -225,9 +230,14 @@ export default function App() {
       open={settingsOpen}
       onOpenChange={setSettingsOpen}
       toolSettings={toolSettings}
+      queueSettings={queueSettings}
       toolSettingsLoading={toolSettingsLoading}
       onGlobalTool={async (name, enabled) => {
         try { setToolSettings(await updateGlobalTool(name, enabled)); }
+        catch (error) { report(error); throw error; }
+      }}
+      onGlobalQueue={async (settings) => {
+        try { setQueueSettings(await updateGlobalQueueSettings(settings)); }
         catch (error) { report(error); throw error; }
       }}
     />

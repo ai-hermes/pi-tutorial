@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ConversationSnapshot, ToolSettingsView } from "@shared/types";
 import { HarnessSheet } from "@/components/HarnessSheet";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const snapshot: ConversationSnapshot = {
   conversation: { id: "c1", title: "Test", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", messageCount: 0, workspace: "/tmp/test", status: "ready" },
@@ -13,7 +14,14 @@ const snapshot: ConversationSnapshot = {
   availableThinkingLevels: ["off", "medium"],
   status: "ready",
   queue: { steering: [], followUp: [] },
-  settings: { autoCompaction: true, autoRetry: true, steeringMode: "all", followUpMode: "all" },
+  settings: {
+    autoCompaction: true,
+    autoRetry: true,
+    steeringMode: "all",
+    followUpMode: "one-at-a-time",
+    queueDefaults: { steeringMode: "all", followUpMode: "one-at-a-time" },
+    queueOverrides: { steeringMode: null, followUpMode: null },
+  },
   stats: { sessionId: "c1", userMessages: 0, assistantMessages: 0, toolCalls: 0, toolResults: 0, totalMessages: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, contextUsage: { tokens: 0, contextWindow: 100, percent: 0 } },
   stream: { id: "s1", lastEventId: 0 },
   activity: [],
@@ -69,14 +77,26 @@ describe("HarnessSheet", () => {
   it("updates only this conversation's settings and tool override", async () => {
     const onSettings = vi.fn().mockResolvedValue(undefined);
     const onConversationTool = vi.fn().mockResolvedValue(undefined);
-    render(<HarnessSheet {...props} onSettings={onSettings} onConversationTool={onConversationTool} />);
+    render(<TooltipProvider><HarnessSheet {...props} onSettings={onSettings} onConversationTool={onConversationTool} /></TooltipProvider>);
     fireEvent.mouseDown(screen.getByRole("tab", { name: "本会话配置" }), { button: 0, ctrlKey: false });
+    expect(screen.getByRole("checkbox", { name: "Steer 消费：继承全局" })).toBeChecked();
     fireEvent.click(screen.getByRole("switch", { name: "自动压缩（本会话）" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Steer 消费：逐条" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Follow-up 消费：全部" }));
     fireEvent.click(screen.getByRole("switch", { name: "web_search（本会话）" }));
     await waitFor(() => expect(onSettings).toHaveBeenCalledWith({ autoCompaction: false }));
+    await waitFor(() => expect(onSettings).toHaveBeenCalledWith({ queueOverrides: { steeringMode: "one-at-a-time" } }));
+    await waitFor(() => expect(onSettings).toHaveBeenCalledWith({ queueOverrides: { followUpMode: "all" } }));
     await waitFor(() => expect(onConversationTool).toHaveBeenCalledWith("web_search", false));
     expect(screen.getByText("只影响当前会话，不会修改左下角的全局设置。")).toBeInTheDocument();
+    expect(screen.getByText("队列消费")).toBeInTheDocument();
+    expect(screen.getByLabelText("Steer 消费说明")).toBeInTheDocument();
+    expect(screen.getByLabelText("Follow-up 消费说明")).toBeInTheDocument();
+    expect(screen.getByText("下一轮把所有排队的 Steer 一起加入上下文，Agent 同时响应。")).toBeVisible();
+    expect(screen.getByText("每轮只加入第一条，Agent 响应后再按顺序取下一条。")).toBeVisible();
+    expect(screen.getByText("把所有排队的 Follow-up 一起加入下一轮上下文，Agent 合并处理。")).toBeVisible();
+    expect(screen.getByText("每轮只处理第一条，完成响应后再按顺序处理下一条。")).toBeVisible();
     expect(screen.getByText("已启用")).toBeInTheDocument();
-    expect(screen.queryByText("继承全局")).not.toBeInTheDocument();
+    expect(screen.getAllByText("继承全局")).toHaveLength(2);
   });
 });

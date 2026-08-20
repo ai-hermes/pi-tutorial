@@ -86,3 +86,23 @@ describe("tool settings routes", () => {
     expect(response.status).toBe(400);
   });
 });
+
+describe("queue settings routes", () => {
+  it("returns and updates global queue defaults", async () => {
+    const view = { steeringMode: "all", followUpMode: "one-at-a-time" };
+    const getGlobalQueueSettings = vi.fn().mockResolvedValue(view);
+    const updateGlobalQueueSettings = vi.fn().mockResolvedValue(view);
+    const app = createApp({ getGlobalQueueSettings, updateGlobalQueueSettings } as unknown as ConversationService);
+
+    expect((await app.request("/api/settings/queue")).status).toBe(200);
+    const response = await app.request("/api/settings/queue", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ steeringMode: "one-at-a-time" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(getGlobalQueueSettings).toHaveBeenCalledOnce();
+    expect(updateGlobalQueueSettings).toHaveBeenCalledWith({ steeringMode: "one-at-a-time" });
+  });
+});

@@ -94,6 +94,63 @@ describe("ConversationService", () => {
     await conversations.shutdown();
   });
 
+  it("applies global queue defaults unless a conversation overrides them", async () => {
+    const conversations = await service();
+    const inherited = await conversations.createConversation();
+    const overridden = await conversations.createConversation();
+
+    await conversations.updateGlobalQueueSettings({ steeringMode: "one-at-a-time", followUpMode: "one-at-a-time" });
+    let inheritedSnapshot = await conversations.snapshot(inherited.conversation.id);
+    expect(inheritedSnapshot.settings).toMatchObject({
+      steeringMode: "one-at-a-time",
+      followUpMode: "one-at-a-time",
+      queueOverrides: { steeringMode: null, followUpMode: null },
+    });
+
+    await conversations.updateSettings(overridden.conversation.id, {
+      queueOverrides: { steeringMode: "all", followUpMode: "all" },
+    });
+    await conversations.updateGlobalQueueSettings({ steeringMode: "one-at-a-time", followUpMode: "one-at-a-time" });
+    const overriddenSnapshot = await conversations.snapshot(overridden.conversation.id);
+    expect(overriddenSnapshot.settings).toMatchObject({
+      steeringMode: "all",
+      followUpMode: "all",
+      queueDefaults: { steeringMode: "one-at-a-time", followUpMode: "one-at-a-time" },
+      queueOverrides: { steeringMode: "all", followUpMode: "all" },
+    });
+
+    await conversations.updateSettings(overridden.conversation.id, {
+      queueOverrides: { steeringMode: null, followUpMode: null },
+    });
+    inheritedSnapshot = await conversations.snapshot(overridden.conversation.id);
+    expect(inheritedSnapshot.settings).toMatchObject({
+      steeringMode: "one-at-a-time",
+      followUpMode: "one-at-a-time",
+      queueOverrides: { steeringMode: null, followUpMode: null },
+    });
+    await conversations.shutdown();
+  });
+
+  it("persists global queue defaults and conversation overrides across restarts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-chat-test-"));
+    roots.push(root);
+    const firstService = await serviceAt(root);
+    const created = await firstService.createConversation();
+    await firstService.updateGlobalQueueSettings({ steeringMode: "one-at-a-time" });
+    await firstService.updateSettings(created.conversation.id, { queueOverrides: { followUpMode: "one-at-a-time" } });
+    await firstService.shutdown();
+
+    const restoredService = await serviceAt(root);
+    const restored = await restoredService.snapshot(created.conversation.id);
+    expect(restored.settings).toMatchObject({
+      steeringMode: "one-at-a-time",
+      followUpMode: "one-at-a-time",
+      queueDefaults: { steeringMode: "one-at-a-time", followUpMode: "all" },
+      queueOverrides: { steeringMode: null, followUpMode: "one-at-a-time" },
+    });
+    await restoredService.shutdown();
+  });
+
   it("loads only application extensions and enables their registered tools by default", async () => {
     const conversations = await service();
     const created = await conversations.createConversation();
@@ -300,6 +357,8 @@ describe("ConversationService", () => {
     await expect(conversations.setModel(id, "missing", "missing")).rejects.toMatchObject({ status: 404 });
     await expect(conversations.setThinking(id, "invalid" as never)).rejects.toMatchObject({ status: 400 });
     await expect(conversations.updateSettings(id, { autoRetry: "yes" } as never)).rejects.toMatchObject({ status: 400 });
+    await expect(conversations.updateSettings(id, { queueOverrides: { steeringMode: "invalid" } } as never)).rejects.toMatchObject({ status: 400 });
+    await expect(conversations.updateGlobalQueueSettings({ followUpMode: "invalid" } as never)).rejects.toMatchObject({ status: 400 });
     await conversations.shutdown();
   });
 

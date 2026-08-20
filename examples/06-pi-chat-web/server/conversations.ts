@@ -20,10 +20,13 @@ import type {
   BootstrapData,
   ChatImage,
   ConversationSettings,
+  ConversationSettingsPatch,
   ConversationSnapshot,
   ConversationSummary,
+  GlobalQueueSettings,
   GlobalToolSettingsView,
   QueueBehavior,
+  QueueMode,
   RuntimeStatus,
   SessionStats,
   ThinkingLevel,
@@ -60,8 +63,17 @@ interface ConversationRecord {
   createdAt: string;
   updatedAt: string;
   parentId?: string;
-  settings?: ConversationSettings;
+  settings?: PersistedConversationSettings;
   toolSettings?: ConversationToolSettings;
+}
+
+interface PersistedConversationSettings {
+  autoCompaction: boolean;
+  autoRetry: boolean;
+  steeringMode?: QueueMode;
+  followUpMode?: QueueMode;
+  steeringModeOverride?: QueueMode | null;
+  followUpModeOverride?: QueueMode | null;
 }
 
 interface ActiveConversation {
@@ -136,7 +148,7 @@ export class ConversationService {
       sessionFile: manager.getSessionFile()!,
       createdAt: now,
       updatedAt: now,
-      settings: defaultSettings(),
+      settings: defaultPersistedSettings(),
       toolSettings: { overrides: {} },
     };
     await this.writeRecord(record);
@@ -178,7 +190,7 @@ export class ConversationService {
         sessionFile,
         createdAt: now,
         updatedAt: now,
-        settings: defaultSettings(),
+        settings: defaultPersistedSettings(),
         toolSettings: { overrides: {} },
       };
       await this.writeRecord(record);
@@ -219,7 +231,7 @@ export class ConversationService {
       status: active.status,
       ...(active.error ? { error: active.error } : {}),
       queue,
-      settings: this.settings(session),
+      settings: await this.settings(session, record),
       stats,
       stream: { id: channel.streamId, lastEventId: channel.lastId },
       activity: mergeActivity(channel.activity(), projected.activity),
@@ -346,22 +358,29 @@ export class ConversationService {
       .catch((error: unknown) => this.fail(active, error));
   }
 
-  async updateSettings(id: string, patch: Partial<ConversationSettings>): Promise<ConversationSettings> {
+  async updateSettings(id: string, patch: ConversationSettingsPatch): Promise<ConversationSettings> {
     if (patch.autoCompaction !== undefined && typeof patch.autoCompaction !== "boolean") throw new ConversationError("autoCompaction 必须是布尔值。");
     if (patch.autoRetry !== undefined && typeof patch.autoRetry !== "boolean") throw new ConversationError("autoRetry 必须是布尔值。");
-    if (patch.steeringMode !== undefined && patch.steeringMode !== "all" && patch.steeringMode !== "one-at-a-time") throw new ConversationError("steeringMode 无效。");
-    if (patch.followUpMode !== undefined && patch.followUpMode !== "all" && patch.followUpMode !== "one-at-a-time") throw new ConversationError("followUpMode 无效。");
+    validateQueueOverride(patch.queueOverrides?.steeringMode, "steeringMode");
+    validateQueueOverride(patch.queueOverrides?.followUpMode, "followUpMode");
     const active = await this.ensureRuntime(id);
     const session = active.runtime.session;
     if (patch.autoCompaction !== undefined) session.setAutoCompactionEnabled(patch.autoCompaction);
     if (patch.autoRetry !== undefined) session.setAutoRetryEnabled(patch.autoRetry);
-    if (patch.steeringMode) session.setSteeringMode(patch.steeringMode);
-    if (patch.followUpMode) session.setFollowUpMode(patch.followUpMode);
-    const settings = this.settings(session);
-    await this.updateRecord(id, (record) => {
-      record.settings = settings;
-      record.updatedAt = new Date().toISOString();
+    const record = await this.updateRecord(id, (current) => {
+      const settings = persistedSettings(current.settings);
+      if (patch.autoCompaction !== undefined) settings.autoCompaction = patch.autoCompaction;
+      if (patch.autoRetry !== undefined) settings.autoRetry = patch.autoRetry;
+      if (patch.queueOverrides?.steeringMode !== undefined) settings.steeringModeOverride = patch.queueOverrides.steeringMode;
+      if (patch.queueOverrides?.followUpMode !== undefined) settings.followUpModeOverride = patch.queueOverrides.followUpMode;
+      current.settings = settings;
+      current.updatedAt = new Date().toISOString();
     });
+    const global = await this.toolSettingsStore.read();
+    const overrides = queueOverrides(record.settings);
+    session.setSteeringMode(overrides.steeringMode ?? global.steeringMode);
+    session.setFollowUpMode(overrides.followUpMode ?? global.followUpMode);
+    const settings = await this.settings(session, record, global);
     active.events.publish("settings.changed", settings);
     this.touch(active);
     return settings;
@@ -381,6 +400,25 @@ export class ConversationService {
     return globalToolSettingsView(context.runtime.session, await this.toolSettingsStore.read());
   }
 
+  async getGlobalQueueSettings(): Promise<GlobalQueueSettings> {
+    return globalQueueSettings(await this.toolSettingsStore.read());
+  }
+
+  async updateGlobalQueueSettings(patch: Partial<GlobalQueueSettings>): Promise<GlobalQueueSettings> {
+    validateQueueMode(patch.steeringMode, "steeringMode");
+    validateQueueMode(patch.followUpMode, "followUpMode");
+    const global = await this.toolSettingsStore.updateQueue(patch);
+    await Promise.all([...this.active.values()].map(async (active) => {
+      const record = await this.getRecord(active.id);
+      const overrides = queueOverrides(record.settings);
+      active.runtime.session.setSteeringMode(overrides.steeringMode ?? global.steeringMode);
+      active.runtime.session.setFollowUpMode(overrides.followUpMode ?? global.followUpMode);
+      active.events.publish("settings.changed", await this.settings(active.runtime.session, record, global));
+      this.touch(active);
+    }));
+    return globalQueueSettings(global);
+  }
+
   async updateGlobalTool(name: string, enabled: boolean): Promise<GlobalToolSettingsView> {
     if (typeof name !== "string" || !name.trim()) throw new ConversationError("工具名称无效。");
     if (typeof enabled !== "boolean") throw new ConversationError("enabled 必须是布尔值。");
@@ -391,7 +429,6 @@ export class ConversationService {
     await Promise.all([...this.active.values()].map(async (active) => {
       const record = await this.getRecord(active.id);
       applyToolSettings(active.runtime.session, record.toolSettings, global);
-      active.events.publish("settings.changed", this.settings(active.runtime.session));
       active.events.publish("tools.changed", {});
       this.touch(active);
     }));
@@ -413,7 +450,6 @@ export class ConversationService {
     });
     const global = await this.toolSettingsStore.read();
     applyToolSettings(active.runtime.session, record.toolSettings, global);
-    active.events.publish("settings.changed", this.settings(active.runtime.session));
     active.events.publish("tools.changed", {});
     this.touch(active);
     return toolSettingsView(active.runtime.session, record.toolSettings, global);
@@ -437,7 +473,7 @@ export class ConversationService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       parentId: id,
-      settings: this.settings(active.runtime.session),
+      settings: structuredClone(persistedSettings(source.settings)),
       toolSettings: structuredClone(conversationToolSettings(source.toolSettings)),
     };
     await this.writeRecord(record);
@@ -556,11 +592,13 @@ export class ConversationService {
       ? SessionManager.open(restoredSessionFile, this.paths.sessions, record.workspace)
       : SessionManager.create(record.workspace, this.paths.sessions, { id: record.id }));
     const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager: nextManager, sessionStartEvent }) => {
+      const global = await this.toolSettingsStore.read();
+      const overrides = queueOverrides(record.settings);
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: record.settings?.autoCompaction ?? true },
         retry: { enabled: record.settings?.autoRetry ?? true, maxRetries: 2 },
-        steeringMode: record.settings?.steeringMode ?? "all",
-        followUpMode: record.settings?.followUpMode ?? "all",
+        steeringMode: overrides.steeringMode ?? global.steeringMode,
+        followUpMode: overrides.followUpMode ?? global.followUpMode,
       });
       const services = await createAgentSessionServices({
         cwd,
@@ -722,12 +760,20 @@ export class ConversationService {
     active.timer.unref?.();
   }
 
-  private settings(session: ActiveConversation["runtime"]["session"]): ConversationSettings {
+  private async settings(
+    session: ActiveConversation["runtime"]["session"],
+    record: ConversationRecord,
+    global?: GlobalToolSettings,
+  ): Promise<ConversationSettings> {
+    const defaults = global ?? await this.toolSettingsStore.read();
+    const overrides = queueOverrides(record.settings);
     return {
       autoCompaction: session.autoCompactionEnabled,
       autoRetry: session.autoRetryEnabled,
       steeringMode: session.settingsManager.getSteeringMode(),
       followUpMode: session.settingsManager.getFollowUpMode(),
+      queueDefaults: globalQueueSettings(defaults),
+      queueOverrides: overrides,
     };
   }
 
@@ -918,6 +964,35 @@ function packageNameFromPath(path: string): string | undefined {
   return parts[0]?.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
 }
 
-function defaultSettings(): ConversationSettings {
-  return { autoCompaction: true, autoRetry: true, steeringMode: "all", followUpMode: "all" };
+function defaultPersistedSettings(): PersistedConversationSettings {
+  return { autoCompaction: true, autoRetry: true, steeringModeOverride: null, followUpModeOverride: null };
+}
+
+function persistedSettings(value: PersistedConversationSettings | undefined): PersistedConversationSettings {
+  return {
+    autoCompaction: value?.autoCompaction ?? true,
+    autoRetry: value?.autoRetry ?? true,
+    steeringModeOverride: value?.steeringModeOverride ?? value?.steeringMode ?? null,
+    followUpModeOverride: value?.followUpModeOverride ?? value?.followUpMode ?? null,
+  };
+}
+
+function queueOverrides(value: PersistedConversationSettings | undefined): NonNullable<ConversationSettings["queueOverrides"]> {
+  const settings = persistedSettings(value);
+  return {
+    steeringMode: settings.steeringModeOverride ?? null,
+    followUpMode: settings.followUpModeOverride ?? null,
+  };
+}
+
+function globalQueueSettings(settings: GlobalToolSettings): GlobalQueueSettings {
+  return { steeringMode: settings.steeringMode, followUpMode: settings.followUpMode };
+}
+
+function validateQueueMode(value: unknown, name: string): void {
+  if (value !== undefined && value !== "all" && value !== "one-at-a-time") throw new ConversationError(`${name} 无效。`);
+}
+
+function validateQueueOverride(value: unknown, name: string): void {
+  if (value !== undefined && value !== null && value !== "all" && value !== "one-at-a-time") throw new ConversationError(`${name} 无效。`);
 }

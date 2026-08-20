@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { Hono } from "hono";
-import type { ConversationSettings, ThinkingLevel } from "@shared/types";
+import type { ConversationSettingsPatch, ThinkingLevel } from "@shared/types";
 import type { ConversationService } from "@server/conversations";
 import { ConversationError } from "@server/errors";
 
@@ -63,7 +63,7 @@ export function createConversationRoutes(service: ConversationService): Hono {
     return context.json({ accepted: true }, 202);
   });
   routes.patch("/:id/settings", async (context) => {
-    const body = await jsonBody<Partial<ConversationSettings>>(context.req.raw);
+    const body = await jsonBody<ConversationSettingsPatch>(context.req.raw);
     return context.json(await service.updateSettings(context.req.param("id"), body));
   });
   routes.get("/:id/tools", async (context) => context.json(await service.getToolSettings(context.req.param("id"))));
